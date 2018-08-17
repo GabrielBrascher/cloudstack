@@ -214,7 +214,9 @@ public class LibvirtComputingResource extends ServerResourceBase implements Serv
     private String _dcId;
     private String _pod;
     private String _clusterId;
-
+    private long _migrateWithStorageFlags;
+    private long _migrateFlags;
+    private MigrationBy _migrateBy;
     private long _hvVersion;
     private Duration _timeout;
     private static final int NUMMEMSTATS =2;
@@ -229,6 +231,7 @@ public class LibvirtComputingResource extends ServerResourceBase implements Serv
     private String _mountPoint = "/mnt";
     private StorageLayer _storage;
     private KVMStoragePoolManager _storagePoolMgr;
+    private String _libvirtConnectionProtocol = "qemu://";
 
     private VifDriver _defaultVifDriver;
     private Map<TrafficType, VifDriver> _trafficTypeVifDrivers;
@@ -416,6 +419,22 @@ public class LibvirtComputingResource extends ServerResourceBase implements Serv
 
     public int getMigrateSpeed() {
         return _migrateSpeed;
+    }
+
+    public MigrationBy getMigrateBy() {
+        return _migrateBy;
+    }
+
+    public long getMigrateFlags() {
+        return _migrateFlags;
+    }
+
+    public long getMigrateWithStorageFlags() {
+        return _migrateWithStorageFlags;
+    }
+
+    public String getLibvirtConnectionProtocol() {
+        return _libvirtConnectionProtocol;
     }
 
     public String getPingTestPath() {
@@ -1019,6 +1038,11 @@ public class LibvirtComputingResource extends ServerResourceBase implements Serv
             _mountPoint = "/mnt";
         }
 
+        _libvirtConnectionProtocol = (String) params.get("libvirt.connection.protocol");
+        if (_libvirtConnectionProtocol == null) {
+            _libvirtConnectionProtocol = "qemu://";
+        }
+
         value = (String) params.get("vm.migrate.downtime");
         _migrateDowntime = NumbersUtil.parseInt(value, -1);
 
@@ -1043,6 +1067,17 @@ public class LibvirtComputingResource extends ServerResourceBase implements Serv
                 }
             }
             params.put("vm.migrate.speed", String.valueOf(_migrateSpeed));
+        }
+
+        value = (String)params.get("vm.migratewithstorage.flags");
+        _migrateWithStorageFlags = NumbersUtil.parseLong(value, 4481);
+
+        value = (String)params.get("vm.migrate.flags");
+        _migrateFlags = NumbersUtil.parseInt(value, 1);
+
+        _migrateBy = MigrationBy.fromString((String) params.get("vm.migrate.by"));
+        if (_migrateBy == null) {
+            _migrateBy = MigrationBy.IP;
         }
 
         bridges.put("linklocal", _linkLocalBridgeName);
@@ -1439,7 +1474,6 @@ public class LibvirtComputingResource extends ServerResourceBase implements Serv
      */
     @Override
     public Answer executeRequest(final Command cmd) {
-
         final LibvirtRequestWrapper wrapper = LibvirtRequestWrapper.getInstance();
         try {
             return wrapper.execute(cmd, this);
