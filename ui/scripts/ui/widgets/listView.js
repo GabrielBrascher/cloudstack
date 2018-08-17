@@ -780,7 +780,7 @@
 
         var addColumnToTr = function($tr, key, colspan, label, needsCollapsibleColumn) {
             var trText = _l(label);
-            var $th = $('<th>').addClass(key).attr('colspan', colspan).appendTo($tr);
+            var $th = $('<th>').addClass(key).attr('colspan', colspan).attr('title', trText).appendTo($tr);
             if ($th.index()) $th.addClass('reduced-hide');
             $th.css({'border-right': '1px solid #C6C3C3', 'border-left': '1px solid #C6C3C3'});
             if (needsCollapsibleColumn) {
@@ -1120,8 +1120,9 @@
                 else
                     $detailView = args.pageGenerator(data).appendTo($newPanel);
 
-                if (complete) complete($detailView);
-
+                if (complete){
+                    complete($detailView);
+                }
                 return $detailView;
             }
         };

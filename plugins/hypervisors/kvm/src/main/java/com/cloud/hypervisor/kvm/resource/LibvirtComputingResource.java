@@ -47,6 +47,7 @@ import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 
+import com.cloud.resource.RequestWrapper;
 import org.apache.cloudstack.storage.to.PrimaryDataStoreTO;
 import org.apache.cloudstack.storage.to.VolumeObjectTO;
 import org.apache.cloudstack.utils.hypervisor.HypervisorUtils;
@@ -279,7 +280,6 @@ public class LibvirtComputingResource extends ServerResourceBase implements Serv
     protected int _rngRateBytes = 2048;
     private File _qemuSocketsPath;
     private final String _qemuGuestAgentSocketName = "org.qemu.guest_agent.0";
-    private long _totalMemory;
     protected WatchDogAction _watchDogAction = WatchDogAction.NONE;
     protected WatchDogModel _watchDogModel = WatchDogModel.I6300ESB;
 
@@ -297,8 +297,6 @@ public class LibvirtComputingResource extends ServerResourceBase implements Serv
         s_powerStatesTable.put(DomainState.VIR_DOMAIN_SHUTDOWN, PowerState.PowerOff);
     }
 
-    protected List<String> _vmsKilled = new ArrayList<String>();
-
     private VirtualRoutingResource _virtRouterResource;
 
     private String _pingTestPath;
@@ -309,7 +307,6 @@ public class LibvirtComputingResource extends ServerResourceBase implements Serv
 
     private long _dom0OvercommitMem;
 
-    protected boolean _disconnected = true;
     protected int _cmdsTimeout;
     protected int _stopTimeout;
     protected CPUStat _cpuStat = new CPUStat();
@@ -1467,12 +1464,20 @@ public class LibvirtComputingResource extends ServerResourceBase implements Serv
         return true;
     }
 
+    /**
+     * This finds a command wrapper to handle the command and executes it.
+     * If no wrapper is found an {@see UnsupportedAnswer} is sent back.
+     * Any other exceptions are to be caught and wrapped in an generic {@see Answer}, marked as failed.
+     *
+     * @param cmd the instance of a {@see Command} to execute.
+     * @return the for the {@see Command} appropriate {@see Answer} or {@see UnsupportedAnswer}
+     */
     @Override
     public Answer executeRequest(final Command cmd) {
         final LibvirtRequestWrapper wrapper = LibvirtRequestWrapper.getInstance();
         try {
             return wrapper.execute(cmd, this);
-        } catch (final Exception e) {
+        } catch (final RequestWrapper.CommandNotSupported cmde) {
             return Answer.createUnsupportedCommandAnswer(cmd);
         }
     }
@@ -2234,9 +2239,8 @@ public class LibvirtComputingResource extends ServerResourceBase implements Serv
         final DataTO data = volume.getData();
         final DataStoreTO store = data.getDataStore();
 
-        if (volume.getType() == Volume.Type.ISO && data.getPath() != null) {
-            final NfsTO nfsStore = (NfsTO)store;
-            final String isoPath = nfsStore.getUrl() + File.separator + data.getPath();
+        if (volume.getType() == Volume.Type.ISO && data.getPath() != null && (store instanceof NfsTO || store instanceof PrimaryDataStoreTO)) {
+            final String isoPath = store.getUrl().split("\\?")[0] + File.separator + data.getPath();
             final int index = isoPath.lastIndexOf("/");
             final String path = isoPath.substring(0, index);
             final String name = isoPath.substring(index + 1);
@@ -2632,7 +2636,6 @@ public class LibvirtComputingResource extends ServerResourceBase implements Serv
     public StartupCommand[] initialize() {
 
         final List<Object> info = getHostInfo();
-        _totalMemory = (Long)info.get(2);
 
         final StartupRoutingCommand cmd =
                 new StartupRoutingCommand((Integer)info.get(0), (Long)info.get(1), (Long)info.get(2), (Long)info.get(4), (String)info.get(3), _hypervisorType,
@@ -3819,10 +3822,6 @@ public class LibvirtComputingResource extends ServerResourceBase implements Serv
                 continue;
             }
         }
-    }
-
-    public long getTotalMemory() {
-        return _totalMemory;
     }
 
     public String getHostDistro() {

@@ -501,7 +501,7 @@ public class ApiResponseHelper implements ResponseGenerator {
                 snapshotResponse.setZoneId(zone.getUuid());
             }
 
-            if (volume.getVolumeType() == Volume.Type.ROOT) {
+            if (volume.getVolumeType() == Volume.Type.ROOT && volume.getInstanceId() != null) {
                 //TODO combine lines and 489 into a join in the volume dao
                 VMInstanceVO instance = ApiDBUtils.findVMInstanceById(volume.getInstanceId());
                 if (instance != null) {
@@ -1808,16 +1808,16 @@ public class ApiResponseHelper implements ResponseGenerator {
     }
 
     @Override
-    public AsyncJobResponse queryJobResult(QueryAsyncJobResultCmd cmd) {
-        Account caller = CallContext.current().getCallingAccount();
+    public AsyncJobResponse queryJobResult(final QueryAsyncJobResultCmd cmd) {
+        final Account caller = CallContext.current().getCallingAccount();
 
-        AsyncJob job = _entityMgr.findById(AsyncJob.class, cmd.getId());
+        final AsyncJob job = _entityMgr.findByIdIncludingRemoved(AsyncJob.class, cmd.getId());
         if (job == null) {
             throw new InvalidParameterValueException("Unable to find a job by id " + cmd.getId());
         }
 
-        User userJobOwner = _accountMgr.getUserIncludingRemoved(job.getUserId());
-        Account jobOwner = _accountMgr.getAccount(userJobOwner.getAccountId());
+        final User userJobOwner = _accountMgr.getUserIncludingRemoved(job.getUserId());
+        final Account jobOwner = _accountMgr.getAccount(userJobOwner.getAccountId());
 
         //check permissions
         if (_accountMgr.isNormalUser(caller.getId())) {
@@ -2241,6 +2241,7 @@ public class ApiResponseHelper implements ResponseGenerator {
             response.setNetworkSpannedZones(networkSpannedZones);
         }
         response.setExternalId(network.getExternalId());
+        response.setRedundantRouter(network.isRedundant());
         response.setObjectName("network");
         return response;
     }
@@ -3203,7 +3204,7 @@ public class ApiResponseHelper implements ResponseGenerator {
         GuestOSResponse response = new GuestOSResponse();
         response.setDescription(guestOS.getDisplayName());
         response.setId(guestOS.getUuid());
-        response.setIsUserDefined(Boolean.valueOf(guestOS.getIsUserDefined()).toString());
+        response.setIsUserDefined(guestOS.getIsUserDefined());
         GuestOSCategoryVO category = ApiDBUtils.findGuestOsCategoryById(guestOS.getCategoryId());
         if (category != null) {
             response.setOsCategoryId(category.getUuid());

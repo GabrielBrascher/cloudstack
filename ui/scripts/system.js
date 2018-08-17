@@ -17481,6 +17481,10 @@
                                                 item.powerstate = item.outofbandmanagement.powerstate;
                                             }
 
+                                            if (!item.hypervisorversion && item.details && item.details["Host.OS"]) {
+                                                item.hypervisorversion =  item.details["Host.OS"] + " " +  item.details["Host.OS.Version"];
+                                            }
+
                                             if (item && item.hostha) {
                                                 item.hastate = item.hostha.hastate;
                                                 item.haprovider = item.hostha.haprovider;
@@ -19828,7 +19832,7 @@
                                                 select: function (args) {
                                                     /*
                                                     UI no longer gets providers from "listStorageProviders&type=image" because:
-                                                    (1) Not all of returned values are handled by UI (e.g. Provider "NetApp" is not handled by UI).
+                                                    (1) Not all of returned values are handled by UI.
                                                     (2) Provider "SMB" which is handled by UI is not returned from "listStorageProviders&type=image"
                                                      */
                                                     var items =[ {
@@ -22092,6 +22096,10 @@
 
             if (isAdmin())
             allowedActions.push("migrate");
+        } else if (jsonObj.state == 'Starting') {
+            if (isAdmin()) {
+                allowedActions.push("viewConsole");
+            }
         } else if (jsonObj.state == 'Stopped') {
             allowedActions.push("start");
 
@@ -22109,10 +22117,13 @@
 
         if (jsonObj.state == 'Running') {
             allowedActions.push("stop");
-
             allowedActions.push("viewConsole");
             if (isAdmin())
             allowedActions.push("migrate");
+        } else if (jsonObj.state == 'Starting') {
+            if (isAdmin()) {
+                allowedActions.push("viewConsole");
+            }
         } else if (jsonObj.state == 'Stopped') {
             allowedActions.push("start");
         }
@@ -22136,6 +22147,10 @@
             allowedActions.push("viewConsole");
             if (isAdmin())
             allowedActions.push("migrate");
+        } else if (jsonObj.state == 'Starting') {
+            if (isAdmin()) {
+                allowedActions.push("viewConsole");
+            }
         } else if (jsonObj.state == 'Stopped') {
             allowedActions.push("start");
 

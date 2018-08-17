@@ -17,6 +17,32 @@
 package org.apache.cloudstack.storage.motion;
 
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+import javax.inject.Inject;
+
+import org.apache.cloudstack.engine.subsystem.api.storage.CopyCommandResult;
+import org.apache.cloudstack.engine.subsystem.api.storage.DataMotionStrategy;
+import org.apache.cloudstack.engine.subsystem.api.storage.DataObject;
+import org.apache.cloudstack.engine.subsystem.api.storage.DataStore;
+import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreManager;
+import org.apache.cloudstack.engine.subsystem.api.storage.EndPoint;
+import org.apache.cloudstack.engine.subsystem.api.storage.EndPointSelector;
+import org.apache.cloudstack.engine.subsystem.api.storage.StrategyPriority;
+import org.apache.cloudstack.engine.subsystem.api.storage.TemplateDataFactory;
+import org.apache.cloudstack.engine.subsystem.api.storage.TemplateInfo;
+import org.apache.cloudstack.engine.subsystem.api.storage.VolumeDataFactory;
+import org.apache.cloudstack.engine.subsystem.api.storage.VolumeInfo;
+import org.apache.cloudstack.framework.async.AsyncCompletionCallback;
+import org.apache.cloudstack.framework.config.ConfigKey;
+import org.apache.cloudstack.storage.command.DeleteCommand;
+import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
+import org.apache.cloudstack.storage.to.VolumeObjectTO;
+import org.apache.log4j.Logger;
+import org.springframework.stereotype.Component;
+
 import com.cloud.agent.AgentManager;
 import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.CancelMigrationAnswer;
@@ -46,30 +72,6 @@ import com.cloud.utils.exception.CloudRuntimeException;
 import com.cloud.vm.DiskProfile;
 import com.cloud.vm.VMInstanceVO;
 import com.cloud.vm.dao.VMInstanceDao;
-import org.apache.cloudstack.engine.subsystem.api.storage.CopyCommandResult;
-import org.apache.cloudstack.engine.subsystem.api.storage.DataMotionStrategy;
-import org.apache.cloudstack.engine.subsystem.api.storage.DataObject;
-import org.apache.cloudstack.engine.subsystem.api.storage.DataStore;
-import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreManager;
-import org.apache.cloudstack.engine.subsystem.api.storage.EndPoint;
-import org.apache.cloudstack.engine.subsystem.api.storage.EndPointSelector;
-import org.apache.cloudstack.engine.subsystem.api.storage.StrategyPriority;
-import org.apache.cloudstack.engine.subsystem.api.storage.TemplateDataFactory;
-import org.apache.cloudstack.engine.subsystem.api.storage.TemplateInfo;
-import org.apache.cloudstack.engine.subsystem.api.storage.VolumeDataFactory;
-import org.apache.cloudstack.engine.subsystem.api.storage.VolumeInfo;
-import org.apache.cloudstack.framework.async.AsyncCompletionCallback;
-import org.apache.cloudstack.framework.config.ConfigKey;
-import org.apache.cloudstack.storage.command.DeleteCommand;
-import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
-import org.apache.cloudstack.storage.to.VolumeObjectTO;
-import org.apache.log4j.Logger;
-import org.springframework.stereotype.Component;
-
-import javax.inject.Inject;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
 
 @Component
 public class KVMStorageMotionStrategy  implements DataMotionStrategy {
@@ -181,14 +183,30 @@ public class KVMStorageMotionStrategy  implements DataMotionStrategy {
 
         try {
             CreateCommand provisioningCommand = new CreateCommand(diskProfile, templateImage.getUuid(), destStoragePool, true);
-            CreateAnswer provisioningAnwer = (CreateAnswer) agentMgr.send(destHost.getId(), provisioningCommand);
-            if (provisioningAnwer == null) {
+            final StorageFilerTO pool = provisioningCommand.getPool();
+            VolumeTO volumeTo = new VolumeTO(provisioningCommand.getVolumeId(), diskProfile.getType(), pool.getType(), pool.getUuid(), pool.getPath(), rootVolume.getName(),
+                    rootVolume.getName(), diskProfile.getSize(), null);
+            s_logger.error("[lala] volume to: " + volumeTo.toString());
+            Answer answerAsCreateAnswer = new CreateAnswer(provisioningCommand, volumeTo);
+            answerAsCreateAnswer = agentMgr.send(destHost.getId(), provisioningCommand);
+            CreateAnswer createdAnswer;
+            try {
+                createdAnswer = (CreateAnswer) answerAsCreateAnswer;
+                Boolean createdAnswerResult = createdAnswer.getResult();
+                s_logger.error("[lala] CreateAnswer result: " + createdAnswerResult);
+            } catch (Exception e) {
+                s_logger.error("[lala] catched Exception: " + e);
+            }
+            s_logger.error("[lala] casting to CreateAnswer");
+//            CreateAnswer provisioningAnswer = (CreateAnswer)answerAsCreateAnswer;
+            Answer provisioningAnswer = answerAsCreateAnswer;
+            if (provisioningAnswer == null) {
                 s_logger.error("Migration with storage of vm " + vm + " failed while provisioning root image");
                 throw new CloudRuntimeException("Error while provisioning root image for the vm " + vm + " during migration to host " + destHost);
-            } else if (!provisioningAnwer.getResult()) {
-                s_logger.error("Migration with storage of vm " + vm + " failed. Details: " + provisioningAnwer.getDetails());
-                throw new CloudRuntimeException("Error while provisioning root image for the vm " + vm + " during migration to host " + destHost +
-                        ". " + provisioningAnwer.getDetails());
+            } else if (!provisioningAnswer.getResult()) {
+                s_logger.error("Migration with storage of vm " + vm + " failed. Details: " + provisioningAnswer.getDetails());
+                throw new CloudRuntimeException(
+                        "Error while provisioning root image for the vm " + vm + " during migration to host " + destHost + ". " + provisioningAnswer.getDetails());
             }
         } catch (OperationTimedoutException e) {
             throw new AgentUnavailableException("Operation timed out while provisioning for migration for " + vm, destHost.getId());
@@ -198,12 +216,12 @@ public class KVMStorageMotionStrategy  implements DataMotionStrategy {
         try {
             command = new MigrateWithStorageCommand(to, volumeToFilerTo, destHost.getPrivateIpAddress());
             command.setWait(MigrateWait.value());
-            MigrateWithStorageAnswer answer = (MigrateWithStorageAnswer) agentMgr.send(srcHost.getId(), command);
+            MigrateWithStorageAnswer answer = (MigrateWithStorageAnswer)agentMgr.send(srcHost.getId(), command);
             if (answer == null) {
                 s_logger.error("Migration with storage of vm " + vm + " failed.");
                 throw new CloudRuntimeException("Error while migrating the vm " + vm + " to host " + destHost);
             } else if (!answer.getResult()) {
-                s_logger.error("Migration with storage of vm " + vm+ " failed. Details: " + answer.getDetails());
+                s_logger.error("Migration with storage of vm " + vm + " failed. Details: " + answer.getDetails());
                 throw new CloudRuntimeException("Error while migrating the vm " + vm + " to host " + destHost +
                         ". " + answer.getDetails());
             } else {

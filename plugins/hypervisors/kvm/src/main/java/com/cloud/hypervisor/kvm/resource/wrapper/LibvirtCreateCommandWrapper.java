@@ -49,6 +49,7 @@ public final class LibvirtCreateCommandWrapper extends CommandWrapper<CreateComm
         KVMStoragePool primaryPool = null;
         KVMPhysicalDisk vol = null;
         long disksize;
+        s_logger.error("[lala] executing create command wrapper");
         try {
             final KVMStoragePoolManager storagePoolMgr = libvirtComputingResource.getStoragePoolMgr();
             primaryPool = storagePoolMgr.getStoragePool(pool.getType(), pool.getUuid());
@@ -62,15 +63,20 @@ public final class LibvirtCreateCommandWrapper extends CommandWrapper<CreateComm
                     if (baseVol.getSize() > disksize) {
                         disksize = baseVol.getSize();
                     }
+                    s_logger.error("[lala] basevol:" + baseVol.toString() + " diskpath:" + dskch.getPath()+ " diskprovisioningtype:" + dskch.getProvisioningType() + " primaryPool:" + primaryPool + " disksize:" + disksize);
                     vol = storagePoolMgr.createDiskFromTemplate(baseVol, dskch.getPath(), dskch.getProvisioningType(), primaryPool, disksize, 0);
                 }
                 if (vol == null) {
-                    return new Answer(command, false, " Can't create storage volume on storage pool");
+                    s_logger.error("[lala] I am executing the code that was suposed to not be executed #1");
+                    return new CreateAnswer(command, " Can't create storage volume on storage pool");
+//                    return new Answer(command, false, " Can't create storage volume on storage pool");
                 }
             } else {
                 vol = primaryPool.createPhysicalDisk(dskch.getPath(), dskch.getProvisioningType(), dskch.getSize());
                 if (vol == null) {
-                    return new Answer(command, false, " Can't create Physical Disk");
+                    s_logger.error("[lala] I am executing the code that was suposed to not be executed #2");
+                    return new CreateAnswer(command, " Can't create Physical Disk");
+//                    return new Answer(command, false, " Can't create Physical Disk");
                 }
             }
             final VolumeTO volume = new VolumeTO(command.getVolumeId(), dskch.getType(), pool.getType(), pool.getUuid(), pool.getPath(), vol.getName(), vol.getName(), disksize,
@@ -81,10 +87,12 @@ public final class LibvirtCreateCommandWrapper extends CommandWrapper<CreateComm
             volume.setIopsReadRate(dskch.getIopsReadRate());
             volume.setIopsWriteRate(dskch.getIopsWriteRate());
             volume.setCacheMode(dskch.getCacheMode());
+            s_logger.error("[lala] able to return CreateAnswer in LibvirtCreateCommandWrapper");
             return new CreateAnswer(command, volume);
         } catch (final CloudRuntimeException e) {
             s_logger.debug("Failed to create volume: " + e.toString());
             return new CreateAnswer(command, e);
+//            return new Answer(command, e);
         }
     }
 }

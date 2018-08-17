@@ -19,6 +19,7 @@ package com.cloud.storage;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -485,7 +486,7 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
                 volume.setDomainId((owner == null) ? Domain.ROOT_DOMAIN : owner.getDomainId());
                 volume.setFormat(ImageFormat.valueOf(format));
                 volume = _volsDao.persist(volume);
-                CallContext.current().setEventDetails("Volume Id: " + volume.getId());
+                CallContext.current().setEventDetails("Volume Id: " + volume.getUuid());
 
                 // Increment resource count during allocation; if actual creation fails,
                 // decrement it
@@ -753,7 +754,7 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
                             Volume.class.getName(), volume.getUuid(), displayVolume);
                 }
 
-                CallContext.current().setEventDetails("Volume Id: " + volume.getId());
+                CallContext.current().setEventDetails("Volume Id: " + volume.getUuid());
 
                 // Increment resource count during allocation; if actual creation fails,
                 // decrement it
@@ -1237,92 +1238,139 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
         }
     }
 
-    @Override
     @DB
+    @Override
     @ActionEvent(eventType = EventTypes.EVENT_VOLUME_DELETE, eventDescription = "deleting volume")
+    /**
+     * Executes the removal of the volume. If the volume is only allocated we do not try to remove it from primary and secondary storage.
+     * Otherwise, after the removal in the database, we will try to remove the volume from both primary and secondary storage.
+     */
     public boolean deleteVolume(long volumeId, Account caller) throws ConcurrentOperationException {
-
-        VolumeVO volume = _volsDao.findById(volumeId);
-        if (volume == null) {
-            throw new InvalidParameterValueException("Unable to find volume with ID: " + volumeId);
-        }
-
-        if (!_snapshotMgr.canOperateOnVolume(volume)) {
-            throw new InvalidParameterValueException("There are snapshot operations in progress on the volume, unable to delete it");
-        }
-
-        _accountMgr.checkAccess(caller, null, true, volume);
-
-        if (volume.getInstanceId() != null) {
-            throw new InvalidParameterValueException("Please specify a volume that is not attached to any VM.");
-        }
-
-        if (volume.getState() == Volume.State.UploadOp) {
-            VolumeDataStoreVO volumeStore = _volumeStoreDao.findByVolume(volume.getId());
-            if (volumeStore.getDownloadState() == VMTemplateStorageResourceAssoc.Status.DOWNLOAD_IN_PROGRESS) {
-                throw new InvalidParameterValueException("Please specify a volume that is not uploading");
-            }
-        }
-
-        if (volume.getState() == Volume.State.NotUploaded || volume.getState() == Volume.State.UploadInProgress) {
-            throw new InvalidParameterValueException("The volume is either getting uploaded or it may be initiated shortly, please wait for it to be completed");
-        }
-
+        VolumeVO volume = retrieveAndValidateVolume(volumeId, caller);
         try {
-            if (volume.getState() != Volume.State.Destroy && volume.getState() != Volume.State.Expunging && volume.getState() != Volume.State.Expunged) {
-                Long instanceId = volume.getInstanceId();
-                if (!volService.destroyVolume(volume.getId())) {
-                    return false;
-                }
-
-                VMInstanceVO vmInstance = _vmInstanceDao.findById(instanceId);
-                if (instanceId == null || (vmInstance.getType().equals(VirtualMachine.Type.User))) {
-                    // Decrement the resource count for volumes and primary storage belonging user VM's only
-                    _resourceLimitMgr.decrementResourceCount(volume.getAccountId(), ResourceType.volume, volume.isDisplayVolume());
-                    _resourceLimitMgr.decrementResourceCount(volume.getAccountId(), ResourceType.primary_storage, volume.isDisplayVolume(), new Long(volume.getSize()));
-                }
-            }
+            destroyVolumeIfPossible(volume);
             // Mark volume as removed if volume has not been created on primary or secondary
             if (volume.getState() == Volume.State.Allocated) {
                 _volsDao.remove(volumeId);
                 stateTransitTo(volume, Volume.Event.DestroyRequested);
                 return true;
             }
-            // expunge volume from primary if volume is on primary
-            VolumeInfo volOnPrimary = volFactory.getVolume(volume.getId(), DataStoreRole.Primary);
-            if (volOnPrimary != null) {
-                s_logger.info("Expunging volume " + volume.getId() + " from primary data store");
-                AsyncCallFuture<VolumeApiResult> future = volService.expungeVolumeAsync(volOnPrimary);
-                future.get();
-                //decrement primary storage count
-                _resourceLimitMgr.decrementResourceCount(volOnPrimary.getAccountId(), ResourceType.volume, volOnPrimary.isDisplayVolume());
-                _resourceLimitMgr.decrementResourceCount(volOnPrimary.getAccountId(), ResourceType.primary_storage, volOnPrimary.isDisplayVolume(), new Long(volOnPrimary.getSize()));
-            }
-            // expunge volume from secondary if volume is on image store
-            VolumeInfo volOnSecondary = volFactory.getVolume(volume.getId(), DataStoreRole.Image);
-            if (volOnSecondary != null) {
-                s_logger.info("Expunging volume " + volume.getId() + " from secondary data store");
-                AsyncCallFuture<VolumeApiResult> future2 = volService.expungeVolumeAsync(volOnSecondary);
-                future2.get();
-                //decrement secondary storage count
-                _resourceLimitMgr.decrementResourceCount(volOnSecondary.getAccountId(), ResourceType.secondary_storage, new Long(volOnSecondary.getSize()));
-            }
-            // delete all cache entries for this volume
-            List<VolumeInfo> cacheVols = volFactory.listVolumeOnCache(volume.getId());
-            for (VolumeInfo volOnCache : cacheVols) {
-                s_logger.info("Delete volume from image cache store: " + volOnCache.getDataStore().getName());
-                volOnCache.delete();
-            }
-
+            expungeVolumesInPrimaryStorageIfNeeded(volume);
+            expungeVolumesInSecondaryStorageIfNeeded(volume);
+            cleanVolumesCache(volume);
+            return true;
         } catch (InterruptedException | ExecutionException | NoTransitionException e) {
-            s_logger.warn("Failed to expunge volume:", e);
+            s_logger.warn("Failed to expunge volume: " + volume.getUuid(), e);
             return false;
         }
-
-        return true;
     }
 
-    private boolean stateTransitTo(Volume vol, Volume.Event event) throws NoTransitionException {
+    /**
+     *  Retrieves and validates the volume for the {@link #deleteVolume(long, Account)} method. The following validation are executed.
+     *  <ul>
+     *      <li> if no volume is found in the database, we throw an {@link InvalidParameterValueException};
+     *      <li> if there are snapshots operation on the volume we cannot delete it. Therefore, an {@link InvalidParameterValueException} is thrown;
+     *      <li> if the volume is still attached to a VM we throw an {@link InvalidParameterValueException};
+     *      <li> if volume state is in {@link Volume.State#UploadOp}, we check the {@link VolumeDataStoreVO}. Then, if the {@link VolumeDataStoreVO} for the given volume has download status of {@link VMTemplateStorageResourceAssoc.Status#DOWNLOAD_IN_PROGRESS}, an exception is throw;
+     *      <li> if the volume state is in {@link Volume.State#NotUploaded} or if the state is {@link Volume.State#UploadInProgress}, an {@link InvalidParameterValueException} is thrown;
+     *      <li> we also check if the user has access to the given volume using {@link AccountManager#checkAccess(Account, org.apache.cloudstack.acl.SecurityChecker.AccessType, boolean, String)}.
+     *  </ul>
+     *
+     *  After all validations we return the volume object.
+     */
+    protected VolumeVO retrieveAndValidateVolume(long volumeId, Account caller) {
+        VolumeVO volume = _volsDao.findById(volumeId);
+        if (volume == null) {
+            throw new InvalidParameterValueException("Unable to find volume with ID: " + volumeId);
+        }
+        if (!_snapshotMgr.canOperateOnVolume(volume)) {
+            throw new InvalidParameterValueException("There are snapshot operations in progress on the volume, unable to delete it");
+        }
+        if (volume.getInstanceId() != null) {
+            throw new InvalidParameterValueException("Please specify a volume that is not attached to any VM.");
+        }
+        if (volume.getState() == Volume.State.UploadOp) {
+            VolumeDataStoreVO volumeStore = _volumeStoreDao.findByVolume(volume.getId());
+            if (volumeStore.getDownloadState() == VMTemplateStorageResourceAssoc.Status.DOWNLOAD_IN_PROGRESS) {
+                throw new InvalidParameterValueException("Please specify a volume that is not uploading");
+            }
+        }
+        if (volume.getState() == Volume.State.NotUploaded || volume.getState() == Volume.State.UploadInProgress) {
+            throw new InvalidParameterValueException("The volume is either getting uploaded or it may be initiated shortly, please wait for it to be completed");
+        }
+        _accountMgr.checkAccess(caller, null, true, volume);
+        return volume;
+    }
+
+    /**
+     * Destroy the volume if possible and then decrement the following resource types.
+     * <ul>
+     *  <li> {@link ResourceType#volume};
+     *  <li> {@link ResourceType#primary_storage}
+     * </ul>
+     *
+     * A volume can be destroyed if it is not in any of the following states.
+     * <ul>
+     *  <li> {@value Volume.State#Destroy};
+     *  <li> {@value Volume.State#Expunging};
+     *  <li> {@value Volume.State#Expunged}.
+     * </ul>
+     *
+     * The volume is destroyed via {@link VolumeService#destroyVolume(long)} method.
+     */
+    protected void destroyVolumeIfPossible(VolumeVO volume) {
+        if (volume.getState() != Volume.State.Destroy && volume.getState() != Volume.State.Expunging && volume.getState() != Volume.State.Expunged) {
+            volService.destroyVolume(volume.getId());
+
+            // Decrement the resource count for volumes and primary storage belonging user VM's only
+            _resourceLimitMgr.decrementResourceCount(volume.getAccountId(), ResourceType.volume, volume.isDisplayVolume());
+            _resourceLimitMgr.decrementResourceCount(volume.getAccountId(), ResourceType.primary_storage, volume.isDisplayVolume(), volume.getSize());
+        }
+    }
+
+    /**
+     * We will check if the given volume is in the primary storage. If it is, we will execute an asynchronous call to delete it there.
+     * If the volume is not in the primary storage, we do nothing here.
+     */
+    protected void expungeVolumesInPrimaryStorageIfNeeded(VolumeVO volume) throws InterruptedException, ExecutionException {
+        VolumeInfo volOnPrimary = volFactory.getVolume(volume.getId(), DataStoreRole.Primary);
+        if (volOnPrimary != null) {
+            s_logger.info("Expunging volume " + volume.getId() + " from primary data store");
+            AsyncCallFuture<VolumeApiResult> future = volService.expungeVolumeAsync(volOnPrimary);
+            future.get();
+        }
+    }
+
+    /**
+     * We will check if the given volume is in the secondary storage. If the volume is not in the primary storage, we do nothing here.
+     * If it is, we will execute an asynchronous call to delete it there. Then, we decrement the {@link ResourceType#secondary_storage} for the account that owns the volume.
+     */
+    protected void expungeVolumesInSecondaryStorageIfNeeded(VolumeVO volume) throws InterruptedException, ExecutionException {
+        VolumeInfo volOnSecondary = volFactory.getVolume(volume.getId(), DataStoreRole.Image);
+        if (volOnSecondary != null) {
+            s_logger.info("Expunging volume " + volume.getId() + " from secondary data store");
+            AsyncCallFuture<VolumeApiResult> future2 = volService.expungeVolumeAsync(volOnSecondary);
+            future2.get();
+
+            _resourceLimitMgr.decrementResourceCount(volOnSecondary.getAccountId(), ResourceType.secondary_storage, volOnSecondary.getSize());
+        }
+    }
+
+    /**
+     * Clean volumes cache entries (if they exist).
+     */
+    protected void cleanVolumesCache(VolumeVO volume) {
+        List<VolumeInfo> cacheVols = volFactory.listVolumeOnCache(volume.getId());
+        if (CollectionUtils.isEmpty(cacheVols)) {
+            return;
+        }
+        for (VolumeInfo volOnCache : cacheVols) {
+            s_logger.info("Delete volume from image cache store: " + volOnCache.getDataStore().getName());
+            volOnCache.delete();
+        }
+    }
+
+    protected boolean stateTransitTo(Volume vol, Volume.Event event) throws NoTransitionException {
         return _volStateMachine.transitTo(vol, event, null, _volsDao);
     }
 
@@ -2114,9 +2162,9 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
      * Performs the validations required for replacing the disk offering while migrating the volume of storage. If no new disk offering is provided, we do not execute any validation.
      * If a disk offering is informed, we then proceed with the following checks.
      * <ul>
-     *  <li>We check if the given volume is of ROOT type. We cannot change the disk offering of a ROOT volume. Therefore, we thrown an {@link InvalidParameterValueException}.
-     *  <li>We the disk is being migrated to shared storage and the new disk offering is for local storage (or vice versa), we throw an {@link InvalidParameterValueException}. Bear in mind that we are validating only the new disk offering. If none is provided we can override the current disk offering. This means, placing a volume with shared disk offering in local storage and vice versa.
-     *  <li>We then proceed checking if the tags of the new disk offerings match the tags of the target storage. If they do not match an {@link InvalidParameterValueException} is thrown.
+     *  <li>We check if the given volume is of ROOT type. We cannot change the disk offering of a ROOT volume. Therefore, we thrown an {@link InvalidParameterValueException};
+     *  <li>We the disk is being migrated to shared storage and the new disk offering is for local storage (or vice versa), we throw an {@link InvalidParameterValueException}. Bear in mind that we are validating only the new disk offering. If none is provided we can override the current disk offering. This means, placing a volume with shared disk offering in local storage and vice versa;
+     *  <li>We then proceed checking the target storage pool supports the new disk offering {@link #doesTargetStorageSupportNewDiskOffering(StoragePool, DiskOfferingVO)}.
      * </ul>
      *
      * If all of the above validations pass, we check if the size of the new disk offering is different from the volume. If it is, we log a warning message.
@@ -2125,16 +2173,12 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
         if (newDiskOffering == null) {
             return;
         }
-        if (Volume.Type.ROOT.equals(volume.getVolumeType())) {
-            throw new InvalidParameterValueException(String.format("Cannot change the disk offering of a ROOT volume [id=%s].", volume.getUuid()));
-        }
         if ((destPool.isShared() && newDiskOffering.getUseLocalStorage()) || destPool.isLocal() && newDiskOffering.isShared()) {
             throw new InvalidParameterValueException("You cannot move the volume to a shared storage and assing a disk offering for local storage and vice versa.");
         }
-        String storageTags = getStoragePoolTags(destPool);
-        if (!StringUtils.areTagsEqual(storageTags, newDiskOffering.getTags())) {
-            throw new InvalidParameterValueException(String.format("Target Storage [id=%s] tags [%s] does not match new disk offering [id=%s] tags [%s].", destPool.getUuid(), storageTags,
-                    newDiskOffering.getUuid(), newDiskOffering.getTags()));
+        if (!doesTargetStorageSupportNewDiskOffering(destPool, newDiskOffering)) {
+            throw new InvalidParameterValueException(String.format("Target Storage [id=%s] tags [%s] does not match new disk offering [id=%s] tags [%s].", destPool.getUuid(),
+                    getStoragePoolTags(destPool), newDiskOffering.getUuid(), newDiskOffering.getTags()));
         }
         if (volume.getSize() != newDiskOffering.getDiskSize()) {
             DiskOfferingVO oldDiskOffering = this._diskOfferingDao.findById(volume.getDiskOfferingId());
@@ -2142,7 +2186,59 @@ public class VolumeApiServiceImpl extends ManagerBase implements VolumeApiServic
                     "You are migrating a volume [id=%s] and changing the disk offering[from id=%s to id=%s] to reflect this migration. However, the sizes of the volume and the new disk offering are different.",
                     volume.getUuid(), oldDiskOffering.getUuid(), newDiskOffering.getUuid()));
         }
+        s_logger.info(String.format("Changing disk offering to [uuid=%s] while migrating volume [uuid=%s, name=%s].", newDiskOffering.getUuid(), volume.getUuid(), volume.getName()));
+    }
 
+    /**
+     *  Checks if the target storage supports the new disk offering.
+     *  This validation is consistent with the mechanism used to select a storage pool to deploy a volume when a virtual machine is deployed or when a new data disk is allocated.
+     *
+     *  The scenarios when this method returns true or false is presented in the following table.
+     *
+     *   <table border="1">
+     *      <tr>
+     *          <th>#</th><th>Disk offering tags</th><th>Storage tags</th><th>Does the storage support the disk offering?</th>
+     *      </tr>
+     *      <body>
+     *      <tr>
+     *          <td>1</td><td>A,B</td><td>A</td><td>NO</td>
+     *      </tr>
+     *      <tr>
+     *          <td>2</td><td>A,B,C</td><td>A,B,C,D,X</td><td>YES</td>
+     *      </tr>
+     *      <tr>
+     *          <td>3</td><td>A,B,C</td><td>X,Y,Z</td><td>NO</td>
+     *      </tr>
+     *      <tr>
+     *          <td>4</td><td>null</td><td>A,S,D</td><td>YES</td>
+     *      </tr>
+     *      <tr>
+     *          <td>5</td><td>A</td><td>null</td><td>NO</td>
+     *      </tr>
+     *      <tr>
+     *          <td>6</td><td>null</td><td>null</td><td>YES</td>
+     *      </tr>
+     *      </body>
+     *   </table>
+     */
+    protected boolean doesTargetStorageSupportNewDiskOffering(StoragePool destPool, DiskOfferingVO newDiskOffering) {
+        String newDiskOfferingTags = newDiskOffering.getTags();
+        return doesTargetStorageSupportDiskOffering(destPool, newDiskOfferingTags);
+    }
+
+    @Override
+    public boolean doesTargetStorageSupportDiskOffering(StoragePool destPool, String diskOfferingTags) {
+        if (org.apache.commons.lang.StringUtils.isBlank(diskOfferingTags)) {
+            return true;
+        }
+        String storagePoolTags = getStoragePoolTags(destPool);
+        if (org.apache.commons.lang.StringUtils.isBlank(storagePoolTags)) {
+            return false;
+        }
+        String[] storageTagsAsStringArray = org.apache.commons.lang.StringUtils.split(storagePoolTags, ",");
+        String[] newDiskOfferingTagsAsStringArray = org.apache.commons.lang.StringUtils.split(diskOfferingTags, ",");
+
+        return CollectionUtils.isSubCollection(Arrays.asList(newDiskOfferingTagsAsStringArray), Arrays.asList(storageTagsAsStringArray));
     }
 
     /**

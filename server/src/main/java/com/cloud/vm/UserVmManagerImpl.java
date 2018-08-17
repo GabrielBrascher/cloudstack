@@ -656,10 +656,6 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         }
     }
 
-
-
-
-
     @Override
     @ActionEvent(eventType = EventTypes.EVENT_VM_RESETPASSWORD, eventDescription = "resetting Vm password", async = true)
     public UserVm resetVMPassword(ResetVMPasswordCmd cmd, String password) throws ResourceUnavailableException, InsufficientCapacityException {
@@ -682,6 +678,11 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         if (userVm.getState() == State.Error || userVm.getState() == State.Expunging) {
             s_logger.error("vm is not in the right state: " + vmId);
             throw new InvalidParameterValueException("Vm with id " + vmId + " is not in the right state");
+        }
+
+        if (userVm.getState() != State.Stopped) {
+            s_logger.error("vm is not in the right state: " + vmId);
+            throw new InvalidParameterValueException("Vm " + userVm + " should be stopped to do password reset");
         }
 
         _accountMgr.checkAccess(caller, null, true, userVm);
@@ -736,6 +737,14 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
                 s_logger.debug("Failed to reset password for the virtual machine; no need to reboot the vm");
                 return false;
             } else {
+                final UserVmVO userVm = _vmDao.findById(vmId);
+                _vmDao.loadDetails(userVm);
+                userVm.setPassword(password);
+                // update the password in vm_details table too
+                // Check if an SSH key pair was selected for the instance and if so
+                // use it to encrypt & save the vm password
+                encryptAndStorePassword(userVm, password);
+
                 if (vmInstance.getState() == State.Stopped) {
                     s_logger.debug("Vm " + vmInstance + " is stopped, not rebooting it as a part of password reset");
                     return true;
@@ -799,15 +808,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
 
         boolean result = resetVMSSHKeyInternal(vmId, sshPublicKey, password);
 
-        if (result) {
-            userVm.setDetail("SSH.PublicKey", sshPublicKey);
-            if (template != null && template.getEnablePassword()) {
-                userVm.setPassword(password);
-                //update the encrypted password in vm_details table too
-                encryptAndStorePassword(userVm, password);
-            }
-            _vmDao.saveDetails(userVm);
-        } else {
+        if (!result) {
             throw new CloudRuntimeException("Failed to reset SSH Key for the virtual machine ");
         }
         return userVm;
@@ -845,6 +846,16 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
             s_logger.debug("Failed to reset SSH Key for the virtual machine; no need to reboot the vm");
             return false;
         } else {
+            final UserVmVO userVm = _vmDao.findById(vmId);
+            _vmDao.loadDetails(userVm);
+            userVm.setDetail("SSH.PublicKey", sshPublicKey);
+            if (template.getEnablePassword()) {
+                userVm.setPassword(password);
+                //update the encrypted password in vm_details table too
+                encryptAndStorePassword(userVm, password);
+            }
+            _vmDao.saveDetails(userVm);
+
             if (vmInstance.getState() == State.Stopped) {
                 s_logger.debug("Vm " + vmInstance + " is stopped, not rebooting it as a part of SSH Key reset");
                 return true;
@@ -1161,6 +1172,8 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
             }
         }
 
+        macAddress = validateOrReplaceMacAddress(macAddress, network.getId());
+
         if(_nicDao.findByNetworkIdAndMacAddress(networkId, macAddress) != null) {
             throw new CloudRuntimeException("A NIC with this MAC address exists for network: " + network.getUuid());
         }
@@ -1231,6 +1244,19 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         return _vmDao.findById(vmInstance.getId());
     }
 
+    /**
+     * If the given MAC address is invalid it replaces the given MAC with the next available MAC address
+     */
+    protected String validateOrReplaceMacAddress(String macAddress, long networkId) {
+        if (!NetUtils.isValidMac(macAddress)) {
+            try {
+                macAddress = _networkModel.getNextAvailableMacAddressInNetwork(networkId);
+            } catch (InsufficientAddressCapacityException e) {
+                throw new CloudRuntimeException(String.format("A MAC address cannot be generated for this NIC in the network [id=%s] ", networkId));
+            }
+        }
+        return macAddress;
+    }
 
     private void saveExtraDhcpOptions(long nicId, Map<Integer, String> dhcpOptions) {
         List<NicExtraDhcpOptionVO> nicExtraDhcpOptionVOList = dhcpOptions
@@ -1584,7 +1610,11 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
 
         Long vmId = cmd.getId();
         Long newServiceOfferingId = cmd.getServiceOfferingId();
-        CallContext.current().setEventDetails("Vm Id: " + vmId);
+        VirtualMachine vm = (VirtualMachine) this._entityMgr.findById(VirtualMachine.class, vmId);
+        if (vm == null) {
+            throw new InvalidParameterValueException("Unable to find VM's UUID");
+        }
+        CallContext.current().setEventDetails("Vm Id: " + vm.getUuid());
 
         boolean result = upgradeVirtualMachine(vmId, newServiceOfferingId, cmd.getDetails());
         if (result) {
@@ -3771,7 +3801,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
                 if (s_logger.isDebugEnabled()) {
                     s_logger.debug("Successfully allocated DB entry for " + vm);
                 }
-                CallContext.current().setEventDetails("Vm Id: " + vm.getId());
+                CallContext.current().setEventDetails("Vm Id: " + vm.getUuid());
 
                 if (!offering.isDynamic()) {
                     UsageEventUtils.publishUsageEvent(EventTypes.EVENT_VM_CREATE, accountId, zone.getId(), vm.getId(), vm.getHostName(), offering.getId(), template.getId(),
@@ -4090,7 +4120,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
                 final String serviceOffering = _serviceOfferingDao.findByIdIncludingRemoved(vm.getId(), vm.getServiceOfferingId()).getDisplayText();
                 boolean isWindows = _guestOSCategoryDao.findById(_guestOSDao.findById(vm.getGuestOSId()).getCategoryId()).getName().equalsIgnoreCase("Windows");
 
-                List<String[]> vmData = _networkModel.generateVmData(vm.getUserData(), serviceOffering, vm.getDataCenterId(), vm.getInstanceName(), vm.getId(),
+                List<String[]> vmData = _networkModel.generateVmData(vm.getUserData(), serviceOffering, vm.getDataCenterId(), vm.getInstanceName(), vm.getHostName(), vm.getId(),
                         vm.getUuid(), defaultNic.getIPv4Address(), vm.getDetail("SSH.PublicKey"), (String) profile.getParameter(VirtualMachineProfile.Param.VmPassword), isWindows);
                 String vmName = vm.getInstanceName();
                 String configDriveIsoRootFolder = "/tmp";
@@ -4101,8 +4131,6 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
                 profile.setConfigDriveIsoFile(isoFile);
             }
         }
-
-
 
         _templateMgr.prepareIsoForVmProfile(profile, dest);
         return true;
@@ -4793,7 +4821,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
         String group = cmd.getGroup();
         String userData = cmd.getUserData();
         String sshKeyPairName = cmd.getSSHKeyPairName();
-        Boolean displayVm = cmd.getDisplayVm();
+        Boolean displayVm = cmd.isDisplayVm();
         String keyboard = cmd.getKeyboard();
         Map<Long, DiskOffering> dataDiskTemplateToDiskOfferingMap = cmd.getDataDiskTemplateToDiskOfferingMap();
         if (zone.getNetworkType() == NetworkType.Basic) {
@@ -6145,14 +6173,7 @@ public class UserVmManagerImpl extends ManagerBase implements UserVmManager, Vir
             if (template.getEnablePassword()) {
                 password = _mgr.generateRandomPassword();
                 boolean result = resetVMPasswordInternal(vmId, password);
-                if (result) {
-                    vm.setPassword(password);
-                    _vmDao.loadDetails(vm);
-                    // update the password in vm_details table too
-                    // Check if an SSH key pair was selected for the instance and if so
-                    // use it to encrypt & save the vm password
-                    encryptAndStorePassword(vm, password);
-                } else {
+                if (!result) {
                     throw new CloudRuntimeException("VM reset is completed but failed to reset password for the virtual machine ");
                 }
             }

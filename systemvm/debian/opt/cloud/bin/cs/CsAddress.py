@@ -476,9 +476,10 @@ class CsIP:
             self.fw.append(["", "front", "-A NETWORK_STATS_%s -o %s -s %s" %
                             ("eth1", "eth1", guestNetworkCidr)])
 
-            self.fw.append(["nat", "front",
-                            "-A POSTROUTING -s %s -o %s -j SNAT --to-source %s" %
-                            (guestNetworkCidr, self.dev, self.address['public_ip'])])
+            if self.address["source_nat"]:
+                self.fw.append(["nat", "front",
+                                "-A POSTROUTING -o %s -j SNAT --to-source %s" %
+                                (self.dev, self.address['public_ip'])])
 
         if self.get_type() in ["public"]:
             self.fw.append(
@@ -628,7 +629,9 @@ class CsIP:
     def arpPing(self):
         cmd = "arping -c 1 -I %s -A -U -s %s %s" % (
             self.dev, self.address['public_ip'], self.address['gateway'])
-        CsHelper.execute(cmd)
+        if not self.cl.is_redundant() and (not self.address['gateway'] or self.address['gateway'] == "None"):
+            cmd = "arping -c 1 -I %s -A -U %s" % (self.dev, self.address['public_ip'])
+        CsHelper.execute2(cmd, False)
 
     # Delete any ips that are configured but not in the bag
     def compare(self, bag):

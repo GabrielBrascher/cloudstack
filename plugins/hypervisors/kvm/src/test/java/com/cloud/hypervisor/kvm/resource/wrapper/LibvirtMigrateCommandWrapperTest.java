@@ -320,4 +320,5 @@ public class LibvirtMigrateCommandWrapperTest {
     public void testMigrationUriException() {
         LibvirtMigrationHelper.createMigrationURI(null, new LibvirtComputingResource());
     }
+
 }

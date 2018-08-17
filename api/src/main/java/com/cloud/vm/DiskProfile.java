@@ -73,6 +73,7 @@ public class DiskProfile {
             null);
         this.hyperType = hyperType;
         this.path = vol.getPath();
+        this.provisioningType = offering.getProvisioningType();
     }
 
     public DiskProfile(DiskProfile dp) {

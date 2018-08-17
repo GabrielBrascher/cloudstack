@@ -38,6 +38,8 @@ import javax.xml.xpath.XPathConstants;
 import javax.xml.xpath.XPathExpressionException;
 import javax.xml.xpath.XPathFactory;
 
+import com.cloud.agent.api.Command;
+import com.cloud.agent.api.UnsupportedAnswer;
 import com.cloud.hypervisor.kvm.resource.LibvirtVMDef.CpuTuneDef;
 import org.apache.commons.lang.SystemUtils;
 import org.joda.time.Duration;
@@ -5037,7 +5039,6 @@ public class LibvirtComputingResourceTest {
             when(conn.domainLookupByID(vmId)).thenReturn(dm);
             when(dm.getMaxMemory()).thenReturn(1024L);
             when(dm.getName()).thenReturn(vmName);
-            when(libvirtComputingResource.getTotalMemory()).thenReturn(2048*1024L);
             doNothing().when(libvirtComputingResource).createVbd(conn, vmSpec, vmName, vmDef);
         } catch (final LibvirtException e) {
             fail(e.getMessage());
@@ -5191,5 +5192,30 @@ public class LibvirtComputingResourceTest {
         lcr.setQuotaAndPeriod(vmTO, cpuTuneDef);
         Assert.assertEquals(CpuTuneDef.MIN_QUOTA, cpuTuneDef.getQuota());
         Assert.assertEquals((int) (CpuTuneDef.MIN_QUOTA / pct), cpuTuneDef.getPeriod());
+    }
+
+    @Test
+    public void testUnknownCommand() {
+        libvirtComputingResource = new LibvirtComputingResource();
+        Command cmd = new Command() {
+            @Override public boolean executeInSequence() {
+                return false;
+            }
+        };
+        Answer ans = libvirtComputingResource.executeRequest(cmd);
+        assertTrue(ans instanceof UnsupportedAnswer);
+    }
+
+    @Test
+    public void testKnownCommand() {
+        libvirtComputingResource = new LibvirtComputingResource();
+        Command cmd = new PingTestCommand() {
+            @Override public boolean executeInSequence() {
+                throw new NullPointerException("test succeeded");
+            }
+        };
+        Answer ans = libvirtComputingResource.executeRequest(cmd);
+        assertFalse(ans instanceof UnsupportedAnswer);
+        assertTrue(ans instanceof Answer);
     }
 }
