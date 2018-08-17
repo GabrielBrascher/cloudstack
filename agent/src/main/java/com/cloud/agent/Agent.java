@@ -495,19 +495,7 @@ public class Agent implements HandlerFactory, IAgentControl {
 
         _resource.disconnected();
 
-        final String lastConnectedHost = _shell.getConnectedHost();
-
-        int inProgress = 0;
-        do {
-            _shell.getBackoffAlgorithm().waitBeforeRetry();
-
-            s_logger.info("Lost connection to host: " + lastConnectedHost + ". Dealing with the remaining commands...");
-
-            inProgress = _inProgress.get();
-            if (inProgress > 0) {
-                s_logger.info("Cannot connect because we still have " + inProgress + " commands in progress.");
-            }
-        } while (inProgress > 0);
+        s_logger.info("Lost connection to host: " + _shell.getConnectedHost() + ". Attempting reconnection while we still have " + _inProgress.get() + " commands in progress.");
 
         _connection.stop();
 
@@ -740,7 +728,7 @@ public class Agent implements HandlerFactory, IAgentControl {
             _shell.setPersistentProperty(null, KeyStoreUtils.KS_PASSPHRASE_PROPERTY, storedPassword);
         }
 
-        Script script = new Script(true, _keystoreSetupPath, 60000, s_logger);
+        Script script = new Script(_keystoreSetupPath, 60000, s_logger);
         script.add(agentFile.getAbsolutePath());
         script.add(keyStoreFile);
         script.add(storedPassword);
@@ -784,7 +772,7 @@ public class Agent implements HandlerFactory, IAgentControl {
             throw new CloudRuntimeException("Unable to save received agent client and ca certificates", e);
         }
 
-        Script script = new Script(true, _keystoreCertImportPath, 60000, s_logger);
+        Script script = new Script(_keystoreCertImportPath, 60000, s_logger);
         script.add(agentFile.getAbsolutePath());
         script.add(keyStoreFile);
         script.add(KeyStoreUtils.AGENT_MODE);

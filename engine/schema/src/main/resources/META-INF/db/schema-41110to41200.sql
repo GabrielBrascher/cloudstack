@@ -36,3 +36,5 @@ INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`,
 
 -- Enable storage motion for KVM hypervisor
 UPDATE  `cloud`.`hypervisor_capabilities` SET  `storage_motion_supported` =  1 WHERE  `hypervisor_capabilities`.`hypervisor_type` =  'KVM';
+
+UPDATE `cloud`.`async_job` SET `removed` = now() WHERE `removed` IS NULL;

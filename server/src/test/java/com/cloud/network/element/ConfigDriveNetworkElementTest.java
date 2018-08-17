@@ -16,7 +16,6 @@
 // under the License.
 package com.cloud.network.element;
 
-import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.hasEntry;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertFalse;
@@ -32,27 +31,36 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-
-import org.junit.Test;
-import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
-import org.mockito.Spy;
-
-import com.google.common.collect.Maps;
 
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStore;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreManager;
 import org.apache.cloudstack.engine.subsystem.api.storage.EndPoint;
 import org.apache.cloudstack.engine.subsystem.api.storage.EndPointSelector;
 import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
+import org.apache.cloudstack.storage.configdrive.ConfigDrive;
+import org.apache.cloudstack.storage.configdrive.ConfigDriveBuilder;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.Mockito;
+import org.mockito.MockitoAnnotations;
+import org.mockito.Spy;
+import org.powermock.api.mockito.PowerMockito;
+import org.powermock.core.classloader.annotations.PrepareForTest;
+import org.powermock.modules.junit4.PowerMockRunner;
+import org.reflections.ReflectionUtils;
 
+import com.cloud.agent.AgentManager;
 import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.HandleConfigDriveIsoCommand;
+import com.cloud.dc.DataCenter;
 import com.cloud.dc.DataCenterVO;
 import com.cloud.dc.dao.DataCenterDao;
 import com.cloud.deploy.DeployDestination;
@@ -89,7 +97,9 @@ import com.cloud.vm.VirtualMachineProfileImpl;
 import com.cloud.vm.dao.UserVmDao;
 import com.cloud.vm.dao.UserVmDetailsDao;
 import com.cloud.vm.dao.VMInstanceDao;
+import com.google.common.collect.Maps;
 
+@RunWith(PowerMockRunner.class)
 public class ConfigDriveNetworkElementTest {
 
     public static final String CLOUD_ID = "xx";
@@ -98,14 +108,15 @@ public class ConfigDriveNetworkElementTest {
     public static final long NETWORK_ID = 1L;
     private final long DATACENTERID = NETWORK_ID;
     private final String ZONENAME = "zone1";
-    private final String VMINSTANCENAME = "vm_name";
+    private final String VMINSTANCENAME = "i-x-y";
+    private final String VMHOSTNAME = "vm-hostname";
     private final String VMOFFERING = "custom_instance";
     private final long VMID = 30L;
     private final String VMUSERDATA = "H4sIABCvw1oAAystTi1KSSxJ5AIAUPllwQkAAAA=";
     private final long SOID = 31L;
     private final long HOSTID = NETWORK_ID;
-    private final String HOSTNAME = "host1";
 
+    @Mock private DataCenter dataCenter;
     @Mock private ConfigurationDao _configDao;
     @Mock private DataCenterDao _dcDao;
     @Mock private DataStoreManager _dataStoreMgr;
@@ -134,17 +145,19 @@ public class ConfigDriveNetworkElementTest {
     @Mock private ServiceOfferingVO serviceOfferingVO;
     @Mock private UserVmVO virtualMachine;
     @Mock private IPAddressVO publicIp;
+    @Mock private AgentManager agentManager;
 
     @InjectMocks private final ConfigDriveNetworkElement _configDrivesNetworkElement = new ConfigDriveNetworkElement();
     @InjectMocks @Spy private NetworkModelImpl _networkModel = new NetworkModelImpl();
 
-    @org.junit.Before
+    @Before
     public void setUp() throws NoSuchFieldException, IllegalAccessException {
         MockitoAnnotations.initMocks(this);
 
         _configDrivesNetworkElement._networkModel = _networkModel;
 
         when(_dataStoreMgr.getImageStore(DATACENTERID)).thenReturn(dataStore);
+
         when(_ep.select(dataStore)).thenReturn(endpoint);
         when(_vmDao.findById(VMID)).thenReturn(virtualMachine);
         when(_dcDao.findById(DATACENTERID)).thenReturn(dataCenterVO);
@@ -166,7 +179,10 @@ public class ConfigDriveNetworkElementTest {
         when(virtualMachine.getDataCenterId()).thenReturn(DATACENTERID);
         when(virtualMachine.getInstanceName()).thenReturn(VMINSTANCENAME);
         when(virtualMachine.getUserData()).thenReturn(VMUSERDATA);
+        when(virtualMachine.getHostName()).thenReturn(VMHOSTNAME);
+        when(dataCenter.getId()).thenReturn(DATACENTERID);
         when(deployDestination.getHost()).thenReturn(hostVO);
+        when(deployDestination.getDataCenter()).thenReturn(dataCenter);
         when(hostVO.getId()).thenReturn(HOSTID);
         when(nic.isDefaultNic()).thenReturn(true);
         when(nic.getNetworkId()).thenReturn(NETWORK_ID);
@@ -209,25 +225,23 @@ public class ConfigDriveNetworkElementTest {
         when(_vmInstanceDao.updateState(VirtualMachine.State.Stopped, VirtualMachine.Event.ExpungeOperation, VirtualMachine.State.Expunging, virtualMachine, null)).thenReturn(true);
 
         final Answer answer = mock(Answer.class);
-        when(endpoint.sendMessage(any(HandleConfigDriveIsoCommand.class))).thenReturn(answer);
+        when(agentManager.easySend(anyLong(), any(HandleConfigDriveIsoCommand.class))).thenReturn(answer);
         when(answer.getResult()).thenReturn(true);
 
         stateMachine.transitTo(virtualMachine, VirtualMachine.Event.ExpungeOperation, null, _vmInstanceDao);
 
         ArgumentCaptor<HandleConfigDriveIsoCommand> commandCaptor = ArgumentCaptor.forClass(HandleConfigDriveIsoCommand.class);
-        verify(endpoint, times(1)).sendMessage(commandCaptor.capture());
+        verify(agentManager, times(1)).easySend(anyLong(), commandCaptor.capture());
         HandleConfigDriveIsoCommand deleteCommand = commandCaptor.getValue();
 
         assertThat(deleteCommand.isCreate(), is(false));
-        assertThat(deleteCommand.isUpdate(), is(false));
-
 
     }
 
     @Test
     public void testRelease() {
         final Answer answer = mock(Answer.class);
-        when(endpoint.sendMessage(any(HandleConfigDriveIsoCommand.class))).thenReturn(answer);
+        when(agentManager.easySend(anyLong(), any(HandleConfigDriveIsoCommand.class))).thenReturn(answer);
         when(answer.getResult()).thenReturn(true);
         VirtualMachineProfile profile = new VirtualMachineProfileImpl(virtualMachine, null, serviceOfferingVO, null, null);
         assertTrue(_configDrivesNetworkElement.release(network, nicp, profile, null));
@@ -239,81 +253,27 @@ public class ConfigDriveNetworkElementTest {
     }
 
     @Test
-    public void testAddPasswordAndUserdata() throws InsufficientCapacityException, ResourceUnavailableException {
-        List<String[]> actualVmData = getVmData();
+    @SuppressWarnings("unchecked")
+    @PrepareForTest({ConfigDriveBuilder.class})
+    public void testAddPasswordAndUserData() throws Exception {
+        PowerMockito.mockStatic(ConfigDriveBuilder.class);
 
-        assertThat(actualVmData, containsInAnyOrder(
-                new String[]{"userdata", "user_data", VMUSERDATA},
-                new String[]{"metadata", "service-offering", VMOFFERING},
-                new String[]{"metadata", "availability-zone", ZONENAME},
-                new String[]{"metadata", "local-hostname", VMINSTANCENAME},
-                new String[]{"metadata", "local-ipv4", "192.168.111.111"},
-                new String[]{"metadata", "public-hostname", null},
-                new String[]{"metadata", "public-ipv4", "192.168.111.111"},
-                new String[]{"metadata", "vm-id", String.valueOf(VMID)},
-                new String[]{"metadata", "instance-id", VMINSTANCENAME},
-                new String[]{"metadata", "public-keys", PUBLIC_KEY},
-                new String[]{"metadata", "cloud-identifier", String.format("CloudStack-{%s}", CLOUD_ID)},
-                new String[]{PASSWORD, "vm_password", PASSWORD}
-        ));
-    }
+        Method method = ReflectionUtils.getMethods(ConfigDriveBuilder.class, ReflectionUtils.withName("buildConfigDrive")).iterator().next();
+        PowerMockito.when(ConfigDriveBuilder.class, method).withArguments(Mockito.anyListOf(String[].class), Mockito.anyString(), Mockito.anyString()).thenReturn("content");
 
-    @Test
-    public void testAddPasswordAndUserdataStaticNat() throws InsufficientCapacityException, ResourceUnavailableException {
-        when(_ipAddressDao.findByAssociatedVmId(VMID)).thenReturn(publicIp);
-        when(publicIp.getAddress()).thenReturn(new Ip("7.7.7.7"));
-
-        List<String[]> actualVmData = getVmData();
-
-        assertThat(actualVmData, containsInAnyOrder(
-                new String[]{"userdata", "user_data", VMUSERDATA},
-                new String[]{"metadata", "service-offering", VMOFFERING},
-                new String[]{"metadata", "availability-zone", ZONENAME},
-                new String[]{"metadata", "local-hostname", VMINSTANCENAME},
-                new String[]{"metadata", "local-ipv4", "192.168.111.111"},
-                new String[]{"metadata", "public-hostname", "7.7.7.7"},
-                new String[]{"metadata", "public-ipv4", "7.7.7.7"},
-                new String[]{"metadata", "vm-id", String.valueOf(VMID)},
-                new String[]{"metadata", "instance-id", VMINSTANCENAME},
-                new String[]{"metadata", "public-keys", PUBLIC_KEY},
-                new String[]{"metadata", "cloud-identifier", String.format("CloudStack-{%s}", CLOUD_ID)},
-                new String[]{PASSWORD, "vm_password", PASSWORD}
-        ));
-    }
-
-
-    @Test
-    public void testAddPasswordAndUserdataUuid() throws InsufficientCapacityException, ResourceUnavailableException {
-        when(virtualMachine.getUuid()).thenReturn("vm-uuid");
-
-        List<String[]> actualVmData = getVmData();
-
-        assertThat(actualVmData, containsInAnyOrder(
-                new String[]{"userdata", "user_data", VMUSERDATA},
-                new String[]{"metadata", "service-offering", VMOFFERING},
-                new String[]{"metadata", "availability-zone", ZONENAME},
-                new String[]{"metadata", "local-hostname", VMINSTANCENAME},
-                new String[]{"metadata", "local-ipv4", "192.168.111.111"},
-                new String[]{"metadata", "public-hostname", null},
-                new String[]{"metadata", "public-ipv4", "192.168.111.111"},
-                new String[]{"metadata", "vm-id", "vm-uuid"},
-                new String[]{"metadata", "instance-id", "vm-uuid"},
-                new String[]{"metadata", "public-keys", PUBLIC_KEY},
-                new String[]{"metadata", "cloud-identifier", String.format("CloudStack-{%s}", CLOUD_ID)},
-                new String[]{PASSWORD, "vm_password", PASSWORD}
-        ));
-    }
-
-    private List<String[]> getVmData() throws InsufficientCapacityException, ResourceUnavailableException {
         final Answer answer = mock(Answer.class);
         final UserVmDetailVO userVmDetailVO = mock(UserVmDetailVO.class);
-        when(endpoint.sendMessage(any(HandleConfigDriveIsoCommand.class))).thenReturn(answer);
+        when(agentManager.easySend(anyLong(), any(HandleConfigDriveIsoCommand.class))).thenReturn(answer);
         when(answer.getResult()).thenReturn(true);
         when(network.getTrafficType()).thenReturn(Networks.TrafficType.Guest);
         when(virtualMachine.getState()).thenReturn(VirtualMachine.State.Stopped);
+        when(virtualMachine.getUuid()).thenReturn("vm-uuid");
         when(userVmDetailVO.getValue()).thenReturn(PUBLIC_KEY);
         when(nicp.getIPv4Address()).thenReturn("192.168.111.111");
         when(_userVmDetailsDao.findDetail(anyLong(), anyString())).thenReturn(userVmDetailVO);
+        when(_ipAddressDao.findByAssociatedVmId(VMID)).thenReturn(publicIp);
+        when(publicIp.getAddress()).thenReturn(new Ip("7.7.7.7"));
+
         Map<VirtualMachineProfile.Param, Object> parms = Maps.newHashMap();
         parms.put(VirtualMachineProfile.Param.VmPassword, PASSWORD);
         parms.put(VirtualMachineProfile.Param.VmSshPubKey, PUBLIC_KEY);
@@ -322,8 +282,11 @@ public class ConfigDriveNetworkElementTest {
                 network, nicp, profile, deployDestination, null));
 
         ArgumentCaptor<HandleConfigDriveIsoCommand> commandCaptor = ArgumentCaptor.forClass(HandleConfigDriveIsoCommand.class);
-        verify(endpoint, times(1)).sendMessage(commandCaptor.capture());
-        HandleConfigDriveIsoCommand result = commandCaptor.getValue();
-        return result.getVmData();
+        verify(agentManager, times(1)).easySend(anyLong(), commandCaptor.capture());
+        HandleConfigDriveIsoCommand createCommand = commandCaptor.getValue();
+
+        assertTrue(createCommand.isCreate());
+        assertTrue(createCommand.getIsoData().length() > 0);
+        assertTrue(createCommand.getIsoFile().equals(ConfigDrive.createConfigDrivePath(profile.getInstanceName())));
     }
 }

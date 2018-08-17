@@ -56,7 +56,7 @@ public class ApiConstants {
     public static final String CIDR_LIST = "cidrlist";
     public static final String DEST_CIDR_LIST = "destcidrlist";
     public static final String CLEANUP = "cleanup";
-    public static final String MAKEREDUNDANTE = "makeredundant";
+    public static final String MAKEREDUNDANT = "makeredundant";
     public static final String CLUSTER_ID = "clusterid";
     public static final String CLUSTER_NAME = "clustername";
     public static final String CLUSTER_TYPE = "clustertype";
@@ -155,6 +155,7 @@ public class ApiConstants {
     public static final String IDS = "ids";
     public static final String PREVIOUS_ACL_RULE_ID = "previousaclruleid";
     public static final String NEXT_ACL_RULE_ID = "nextaclruleid";
+    public static final String MOVE_ACL_CONSISTENCY_HASH = "aclconsistencyhash";
     public static final String INTERNAL_DNS1 = "internaldns1";
     public static final String INTERNAL_DNS2 = "internaldns2";
     public static final String INTERVAL_TYPE = "intervaltype";
@@ -215,8 +216,8 @@ public class ApiConstants {
     public static final String PARENT_DOMAIN_ID = "parentdomainid";
     public static final String PARENT_TEMPLATE_ID = "parenttemplateid";
     public static final String PASSWORD = "password";
+    public static final String CURRENT_PASSWORD = "currentpassword";
     public static final String SHOULD_UPDATE_PASSWORD = "update_passwd_on_host";
-    public static final String NEW_PASSWORD = "new_password";
     public static final String PASSWORD_ENABLED = "passwordenabled";
     public static final String SSHKEY_ENABLED = "sshkeyenabled";
     public static final String PATH = "path";
@@ -548,6 +549,7 @@ public class ApiConstants {
     public static final String IPSEC_PSK = "ipsecpsk";
     public static final String GUEST_IP = "guestip";
     public static final String REMOVED = "removed";
+    public static final String COMPLETED = "completed";
     public static final String IKE_POLICY = "ikepolicy";
     public static final String ESP_POLICY = "esppolicy";
     public static final String IKE_LIFETIME = "ikelifetime";
@@ -686,6 +688,7 @@ public class ApiConstants {
     public static final String REMAININGCAPACITY = "remainingcapacity";
     public static final String MAXCAPACITY = "maxcapacity";
     public static final String DISTRIBUTED_VPC_ROUTER = "distributedvpcrouter";
+    public static final String REDUNDANT_ROUTER = "redundantrouter";
     public static final String REDUNDANT_VPC_ROUTER = "redundantvpcrouter";
     public static final String READ_ONLY = "readonly";
     public static final String SUPPORTS_REGION_LEVEL_VPC = "supportsregionLevelvpc";
@@ -717,6 +720,11 @@ public class ApiConstants {
     public static final String HAS_ANNOTATION = "hasannotation";
     public static final String LAST_ANNOTATED = "lastannotated";
     public static final String LDAP_DOMAIN = "ldapdomain";
+
+    public static final String STDOUT = "stdout";
+    public static final String STDERR = "stderr";
+    public static final String EXITCODE = "exitcode";
+    public static final String TARGET_ID = "targetid";
 
     public enum HostDetails {
         all, capacity, events, stats, min;
