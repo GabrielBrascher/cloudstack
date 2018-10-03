@@ -18,61 +18,16 @@
  */
 package org.apache.cloudstack.storage.motion;
 
-import com.cloud.agent.AgentManager;
-import com.cloud.agent.api.Answer;
-import com.cloud.agent.api.storage.CopyVolumeAnswer;
-import com.cloud.agent.api.storage.CopyVolumeCommand;
-import com.cloud.agent.api.MigrateAnswer;
-import com.cloud.agent.api.MigrateCommand;
-import com.cloud.agent.api.ModifyTargetsAnswer;
-import com.cloud.agent.api.ModifyTargetsCommand;
-import com.cloud.agent.api.PrepareForMigrationCommand;
-import com.cloud.agent.api.storage.MigrateVolumeAnswer;
-import com.cloud.agent.api.storage.MigrateVolumeCommand;
-import com.cloud.agent.api.to.DataStoreTO;
-import com.cloud.agent.api.to.DataTO;
-import com.cloud.agent.api.to.DiskTO;
-import com.cloud.agent.api.to.NfsTO;
-import com.cloud.agent.api.to.VirtualMachineTO;
-import com.cloud.configuration.Config;
-import com.cloud.dc.dao.ClusterDao;
-import com.cloud.exception.AgentUnavailableException;
-import com.cloud.exception.OperationTimedoutException;
-import com.cloud.host.Host;
-import com.cloud.host.HostVO;
-import com.cloud.host.dao.HostDao;
-import com.cloud.host.dao.HostDetailsDao;
-import com.cloud.hypervisor.Hypervisor.HypervisorType;
-import com.cloud.resource.ResourceState;
-import com.cloud.storage.DataStoreRole;
-import com.cloud.storage.DiskOfferingVO;
-import com.cloud.storage.Snapshot;
-import com.cloud.storage.SnapshotVO;
-import com.cloud.storage.Storage.ImageFormat;
-import com.cloud.storage.StorageManager;
-import com.cloud.storage.StoragePool;
-import com.cloud.storage.VMTemplateVO;
-import com.cloud.storage.VolumeDetailVO;
-import com.cloud.storage.Volume;
-import com.cloud.storage.VolumeVO;
-import com.cloud.storage.dao.DiskOfferingDao;
-import com.cloud.storage.dao.GuestOSCategoryDao;
-import com.cloud.storage.dao.GuestOSDao;
-import com.cloud.storage.dao.SnapshotDao;
-import com.cloud.storage.dao.SnapshotDetailsDao;
-import com.cloud.storage.dao.SnapshotDetailsVO;
-import com.cloud.storage.dao.VMTemplateDao;
-import com.cloud.storage.dao.VolumeDao;
-import com.cloud.storage.dao.VolumeDetailsDao;
-import com.cloud.utils.NumbersUtil;
-import com.cloud.utils.db.GlobalLock;
-import com.cloud.utils.exception.CloudRuntimeException;
-import com.cloud.vm.VirtualMachine;
-import com.cloud.vm.VirtualMachineManager;
-import com.cloud.vm.VMInstanceVO;
-import com.cloud.vm.dao.VMInstanceDao;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
-import com.google.common.base.Preconditions;
+import javax.inject.Inject;
 
 import org.apache.cloudstack.engine.subsystem.api.storage.ChapInfo;
 import org.apache.cloudstack.engine.subsystem.api.storage.ClusterScope;
@@ -113,21 +68,62 @@ import org.apache.cloudstack.storage.to.VolumeObjectTO;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.math.NumberUtils;
 import org.apache.log4j.Logger;
-
 import org.springframework.stereotype.Component;
 
-import javax.inject.Inject;
-
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
-import java.util.Set;
-import java.util.UUID;
-import java.util.concurrent.TimeUnit;
+import com.cloud.agent.AgentManager;
+import com.cloud.agent.api.Answer;
+import com.cloud.agent.api.MigrateAnswer;
+import com.cloud.agent.api.MigrateCommand;
+import com.cloud.agent.api.ModifyTargetsAnswer;
+import com.cloud.agent.api.ModifyTargetsCommand;
+import com.cloud.agent.api.PrepareForMigrationCommand;
+import com.cloud.agent.api.storage.CopyVolumeAnswer;
+import com.cloud.agent.api.storage.CopyVolumeCommand;
+import com.cloud.agent.api.storage.MigrateVolumeAnswer;
+import com.cloud.agent.api.storage.MigrateVolumeCommand;
+import com.cloud.agent.api.to.DataStoreTO;
+import com.cloud.agent.api.to.DataTO;
+import com.cloud.agent.api.to.DiskTO;
+import com.cloud.agent.api.to.NfsTO;
+import com.cloud.agent.api.to.VirtualMachineTO;
+import com.cloud.configuration.Config;
+import com.cloud.dc.dao.ClusterDao;
+import com.cloud.exception.AgentUnavailableException;
+import com.cloud.exception.OperationTimedoutException;
+import com.cloud.host.Host;
+import com.cloud.host.HostVO;
+import com.cloud.host.dao.HostDao;
+import com.cloud.host.dao.HostDetailsDao;
+import com.cloud.hypervisor.Hypervisor.HypervisorType;
+import com.cloud.resource.ResourceState;
+import com.cloud.storage.DataStoreRole;
+import com.cloud.storage.DiskOfferingVO;
+import com.cloud.storage.Snapshot;
+import com.cloud.storage.SnapshotVO;
+import com.cloud.storage.Storage.ImageFormat;
+import com.cloud.storage.StorageManager;
+import com.cloud.storage.StoragePool;
+import com.cloud.storage.VMTemplateVO;
+import com.cloud.storage.Volume;
+import com.cloud.storage.VolumeDetailVO;
+import com.cloud.storage.VolumeVO;
+import com.cloud.storage.dao.DiskOfferingDao;
+import com.cloud.storage.dao.GuestOSCategoryDao;
+import com.cloud.storage.dao.GuestOSDao;
+import com.cloud.storage.dao.SnapshotDao;
+import com.cloud.storage.dao.SnapshotDetailsDao;
+import com.cloud.storage.dao.SnapshotDetailsVO;
+import com.cloud.storage.dao.VMTemplateDao;
+import com.cloud.storage.dao.VolumeDao;
+import com.cloud.storage.dao.VolumeDetailsDao;
+import com.cloud.utils.NumbersUtil;
+import com.cloud.utils.db.GlobalLock;
+import com.cloud.utils.exception.CloudRuntimeException;
+import com.cloud.vm.VMInstanceVO;
+import com.cloud.vm.VirtualMachine;
+import com.cloud.vm.VirtualMachineManager;
+import com.cloud.vm.dao.VMInstanceDao;
+import com.google.common.base.Preconditions;
 
 @Component
 public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
@@ -253,25 +249,7 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
     @Override
     public StrategyPriority canHandle(Map<VolumeInfo, DataStore> volumeMap, Host srcHost, Host destHost) {
         if (HypervisorType.KVM.equals(srcHost.getHypervisorType())) {
-            Set<VolumeInfo> volumeInfoSet = volumeMap.keySet();
-
-            for (VolumeInfo volumeInfo : volumeInfoSet) {
-                StoragePoolVO storagePoolVO = _storagePoolDao.findById(volumeInfo.getPoolId());
-
-                if (storagePoolVO.isManaged()) {
-                    return StrategyPriority.HIGHEST;
-                }
-            }
-
-            Collection<DataStore> dataStores = volumeMap.values();
-
-            for (DataStore dataStore : dataStores) {
-                StoragePoolVO storagePoolVO = _storagePoolDao.findById(dataStore.getId());
-
-                if (storagePoolVO.isManaged()) {
-                    return StrategyPriority.HIGHEST;
-                }
-            }
+            return StrategyPriority.HIGHEST;
         }
 
         return StrategyPriority.CANT_HANDLE;
@@ -1728,7 +1706,11 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
 
                 _volumeService.grantAccess(destVolumeInfo, destHost, destDataStore);
 
-                String connectedPath = connectHostToVolume(destHost, destVolumeInfo.getPoolId(), destVolumeInfo.get_iScsiName());
+                String iScsiName = destVolumeInfo.get_iScsiName();
+                if (iScsiName == null) {
+                    iScsiName = "";
+                }
+                String connectedPath = connectHostToVolume(destHost, destVolumeInfo.getPoolId(), iScsiName);
 
                 MigrateCommand.MigrateDiskInfo migrateDiskInfo = new MigrateCommand.MigrateDiskInfo(srcVolumeInfo.getPath(),
                         MigrateCommand.MigrateDiskInfo.DiskType.BLOCK,
@@ -1989,10 +1971,6 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
 
             if (destStoragePoolVO == null) {
                 throw new CloudRuntimeException("Destination storage pool with ID " + dataStore.getId() + " was not located.");
-            }
-
-            if (!destStoragePoolVO.isManaged()) {
-                throw new CloudRuntimeException("Migrating a volume online with KVM can currently only be done when moving to managed storage.");
             }
         }
     }

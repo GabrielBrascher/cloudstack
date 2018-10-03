@@ -205,8 +205,9 @@ public class CloudStackPrimaryDataStoreDriverImpl implements PrimaryDataStoreDri
         if (errMsg != null) {
             result.setResult(errMsg);
         }
-
-        callback.complete(result);
+        if (callback != null) {
+            callback.complete(result);
+        }
     }
 
     @Override
