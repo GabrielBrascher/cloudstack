@@ -42,6 +42,7 @@ import com.cloud.storage.Storage.StoragePoolType;
 import com.cloud.storage.StorageLayer;
 import com.cloud.storage.Volume;
 import com.cloud.utils.exception.CloudRuntimeException;
+import com.cloud.vm.VirtualMachine.State;
 
 import org.reflections.Reflections;
 
@@ -129,7 +130,6 @@ public class KVMStoragePoolManager {
 
         return adaptor.connectPhysicalDisk(volPath, pool, details);
     }
-
     public boolean connectPhysicalDisksViaVmSpec(VirtualMachineTO vmSpec) {
         boolean result = false;
 
@@ -138,23 +138,30 @@ public class KVMStoragePoolManager {
         List<DiskTO> disks = Arrays.asList(vmSpec.getDisks());
 
         for (DiskTO disk : disks) {
-            if (disk.getType() != Volume.Type.ISO) {
-                VolumeObjectTO vol = (VolumeObjectTO)disk.getData();
-                PrimaryDataStoreTO store = (PrimaryDataStoreTO)vol.getDataStore();
-                KVMStoragePool pool = getStoragePool(store.getPoolType(), store.getUuid());
+            if (disk.getType() == Volume.Type.ISO) {
+                result = true;
+                continue;
+            }
+            VolumeObjectTO vol = (VolumeObjectTO)disk.getData();
+            PrimaryDataStoreTO store = (PrimaryDataStoreTO)vol.getDataStore();
 
-                StorageAdaptor adaptor = getStorageAdaptor(pool.getType());
+            if (!store.isManaged() && State.Migrating.equals(vmSpec.getState())) {
+                result = true;
+                continue;
+            }
 
-                result = adaptor.connectPhysicalDisk(vol.getPath(), pool, disk.getDetails());
+            KVMStoragePool pool = getStoragePool(store.getPoolType(), store.getUuid());
 
-                if (!result) {
-                    s_logger.error("Failed to connect disks via vm spec for vm: " + vmName + " volume:" + vol.toString());
+            StorageAdaptor adaptor = getStorageAdaptor(pool.getType());
 
-                    return result;
-                }
+            result = adaptor.connectPhysicalDisk(vol.getPath(), pool, disk.getDetails());
+
+            if (!result) {
+                s_logger.error("Failed to connect disks via vm spec for vm: " + vmName + " volume:" + vol.toString());
+
+                return result;
             }
         }
-
         return result;
     }
 
@@ -207,7 +214,7 @@ public class KVMStoragePoolManager {
                 VolumeObjectTO vol = (VolumeObjectTO)disk.getData();
                 PrimaryDataStoreTO store = (PrimaryDataStoreTO)vol.getDataStore();
 
-                KVMStoragePool pool = getStoragePool(store.getPoolType(), store.getUuid());
+                KVMStoragePool pool = getStoragePool(store.getPoolType(), store.getUuid()); //resolver
 
                 if (pool == null) {
                     s_logger.error("Pool " + store.getUuid() + " of type " + store.getPoolType() + " was not found, skipping disconnect logic");
@@ -346,11 +353,6 @@ public class KVMStoragePoolManager {
             _storagePools.remove(uuid);
         }
         return true;
-    }
-
-    public KVMPhysicalDisk createDiskFromTemplate(KVMPhysicalDisk template, String name, Storage.ProvisioningType provisioningType,
-                                                    KVMStoragePool destPool, int timeout) {
-        return createDiskFromTemplate(template, name, provisioningType, destPool, template.getSize(), timeout);
     }
 
     public KVMPhysicalDisk createDiskFromTemplate(KVMPhysicalDisk template, String name, Storage.ProvisioningType provisioningType,

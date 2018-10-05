@@ -72,6 +72,8 @@ public class VirtualMachineTO {
 
     Double cpuQuotaPercentage = null;
 
+    private VirtualMachine.State State;
+
     Map<String, String> guestOsDetails = new HashMap<String, String>();
 
     public VirtualMachineTO(long id, String instanceName, VirtualMachine.Type type, int cpus, Integer speed, long minRam, long maxRam, BootloaderType bootloader,
@@ -349,5 +351,13 @@ public class VirtualMachineTO {
 
     public void setCpuQuotaPercentage(Double cpuQuotaPercentage) {
         this.cpuQuotaPercentage = cpuQuotaPercentage;
+    }
+
+    public VirtualMachine.State getState() {
+        return State;
+    }
+
+    public void setState(VirtualMachine.State vmState) {
+        this.State = vmState;
     }
 }

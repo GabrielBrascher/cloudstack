@@ -128,6 +128,7 @@ public abstract class HypervisorGuruBase extends AdapterBase implements Hypervis
     protected VirtualMachineTO toVirtualMachineTO(VirtualMachineProfile vmProfile) {
         ServiceOffering offering = _serviceOfferingDao.findById(vmProfile.getId(), vmProfile.getServiceOfferingId());
         VirtualMachine vm = vmProfile.getVirtualMachine();
+
         Long minMemory = (long)(offering.getRamSize() / vmProfile.getMemoryOvercommitRatio());
         int minspeed = (int)(offering.getSpeed() / vmProfile.getCpuOvercommitRatio());
         int maxspeed = (offering.getSpeed());
@@ -188,6 +189,7 @@ public abstract class HypervisorGuruBase extends AdapterBase implements Hypervis
         to.setConfigDriveLabel(vmProfile.getConfigDriveLabel());
         to.setConfigDriveIsoRootFolder(vmProfile.getConfigDriveIsoRootFolder());
         to.setConfigDriveIsoFile(vmProfile.getConfigDriveIsoFile());
+        to.setState(vm.getState());
 
         return to;
     }

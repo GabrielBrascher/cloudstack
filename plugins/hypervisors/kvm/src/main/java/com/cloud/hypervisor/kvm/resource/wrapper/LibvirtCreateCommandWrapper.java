@@ -59,7 +59,13 @@ public final class LibvirtCreateCommandWrapper extends CommandWrapper<CreateComm
                     vol = libvirtComputingResource.templateToPrimaryDownload(command.getTemplateUrl(), primaryPool, dskch.getPath());
                 } else {
                     baseVol = primaryPool.getPhysicalDisk(command.getTemplateUrl());
-                    vol = storagePoolMgr.createDiskFromTemplate(baseVol, dskch.getPath(), dskch.getProvisioningType(), primaryPool, 0);
+                    //TODO start
+//                    vol = storagePoolMgr.createDiskFromTemplate(baseVol, dskch.getPath(), dskch.getProvisioningType(), primaryPool, 0);
+                    if (baseVol.getSize() > disksize) {
+                        disksize = baseVol.getSize();
+                    }
+                    vol = storagePoolMgr.createDiskFromTemplate(baseVol, dskch.getPath(), dskch.getProvisioningType(), primaryPool, disksize, 0);
+                    //TODO end
                 }
                 if (vol == null) {
                     return new Answer(command, false, " Can't create storage volume on storage pool");
