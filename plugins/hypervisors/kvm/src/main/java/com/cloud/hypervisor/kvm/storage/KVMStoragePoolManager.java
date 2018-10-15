@@ -214,7 +214,7 @@ public class KVMStoragePoolManager {
                 VolumeObjectTO vol = (VolumeObjectTO)disk.getData();
                 PrimaryDataStoreTO store = (PrimaryDataStoreTO)vol.getDataStore();
 
-                KVMStoragePool pool = getStoragePool(store.getPoolType(), store.getUuid()); //resolver
+                KVMStoragePool pool = getStoragePool(store.getPoolType(), store.getUuid()); //TODO resolver?
 
                 if (pool == null) {
                     s_logger.error("Pool " + store.getUuid() + " of type " + store.getPoolType() + " was not found, skipping disconnect logic");

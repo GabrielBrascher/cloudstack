@@ -338,7 +338,7 @@ public final class LibvirtMigrateCommandWrapper extends CommandWrapper<MigrateCo
                         String path = getPathFromSourceText(migrateStorage.keySet(), sourceText);
 
                         if (path != null) {
-                            MigrateCommand.MigrateDiskInfo migrateDiskInfo = migrateStorage.remove(path);
+                            MigrateCommand.MigrateDiskInfo migrateDiskInfo = migrateStorage.get(path);
 
                             NamedNodeMap diskNodeAttributes = diskNode.getAttributes();
                             Node diskNodeAttribute = diskNodeAttributes.getNamedItem("type");
@@ -375,10 +375,6 @@ public final class LibvirtMigrateCommandWrapper extends CommandWrapper<MigrateCo
                     }
                 }
             }
-        }
-
-        if (!migrateStorage.isEmpty()) {
-            throw new CloudRuntimeException("Disk info was passed into LibvirtMigrateCommandWrapper.replaceStorage that was not used.");
         }
 
         return getXml(doc);

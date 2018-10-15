@@ -81,6 +81,7 @@ import com.cloud.agent.api.PrepareForMigrationCommand;
 import com.cloud.agent.api.MigrateCommand.MigrateDiskInfo;
 import com.cloud.agent.api.storage.CopyVolumeAnswer;
 import com.cloud.agent.api.storage.CopyVolumeCommand;
+import com.cloud.agent.api.storage.CreateAnswer;
 import com.cloud.agent.api.storage.CreateCommand;
 import com.cloud.agent.api.storage.MigrateVolumeAnswer;
 import com.cloud.agent.api.storage.MigrateVolumeCommand;
@@ -1672,7 +1673,9 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
                         throw new CloudRuntimeException(String.format("Unable to modify target volume on the host [host id:%s, name:%s]", destHost.getId(), destHost.getName()));
                     }
 
-                    configureDiskInfoToBeMigrated(migrateStorage, srcVolumeInfo, destStoragePool, destVolume, destVolumeInfo);
+                    String libvirtDestinyImagesPath = generateLibirtDestinyImagesPath(destVolumeInfo, rootImageProvisioningAnswer);
+
+                    configureDiskInfoToBeMigrated(migrateStorage, srcVolumeInfo, destStoragePool, destVolume, destVolumeInfo, libvirtDestinyImagesPath);
                 }
             }
 
@@ -1738,8 +1741,19 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
     /**
      * TODO
      */
+    private String generateLibirtDestinyImagesPath(VolumeInfo destVolumeInfo, Answer rootImageProvisioningAnswer) {
+        String libvirtDestImgsPath = StringUtils.EMPTY;
+        if (rootImageProvisioningAnswer instanceof CreateAnswer) {
+            libvirtDestImgsPath = ((CreateAnswer)rootImageProvisioningAnswer).getVolume().getName() + "/";
+        }
+        return libvirtDestImgsPath + destVolumeInfo.getUuid();
+    }
+
+    /**
+     * TODO
+     */
     private void configureDiskInfoToBeMigrated(Map<String, MigrateDiskInfo> migrateStorage, VolumeInfo srcVolumeInfo, StoragePoolVO destStoragePool, VolumeVO destVolume,
-            VolumeInfo destVolumeInfo) {
+            VolumeInfo destVolumeInfo, String libvirtDestImgPath) {
         MigrateDiskInfo.DriverType driverType = MigrateDiskInfo.DriverType.valueOf(destVolume.getFormat().toString());
         MigrateDiskInfo.DiskType diskType = MigrateDiskInfo.DiskType.BLOCK;
         MigrateDiskInfo.Source diskSource = MigrateDiskInfo.Source.DEV;
@@ -1750,7 +1764,7 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
             diskSource = MigrateCommand.MigrateDiskInfo.Source.FILE;
         }
 
-        MigrateCommand.MigrateDiskInfo migrateDiskInfo = new MigrateDiskInfo(srcVolumeInfo.getPath(), diskType, driverType, diskSource, destVolumeInfo.getPath());
+        MigrateCommand.MigrateDiskInfo migrateDiskInfo = new MigrateDiskInfo(srcVolumeInfo.getPath(), diskType, driverType, diskSource, libvirtDestImgPath);
 
         migrateStorage.put(srcVolumeInfo.getPath(), migrateDiskInfo);
     }
