@@ -1616,8 +1616,7 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
 
             Map<String, MigrateCommand.MigrateDiskInfo> migrateStorage = new HashMap<>();
             Map<VolumeInfo, VolumeInfo> srcVolumeInfoToDestVolumeInfo = new HashMap<>();
-
-            boolean isAnyVolumeOnManagedStorage = false;
+            List<MigrateDiskInfo> migrateDiskInfoList = new ArrayList<MigrateDiskInfo>();
 
             for (Map.Entry<VolumeInfo, DataStore> entry : volumeDataStoreMap.entrySet()) {
                 VolumeInfo srcVolumeInfo = entry.getKey();
@@ -1625,6 +1624,8 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
 
                 VolumeVO srcVolume = volumeDao.findById(srcVolumeInfo.getId());
                 StoragePoolVO destStoragePool = storagePoolDao.findById(destDataStore.getId());
+
+                StoragePoolVO sourceStoragePool = storagePoolDao.findById(srcVolumeInfo.getPoolId());
 
                 VolumeVO destVolume = duplicateVolumeOnAnotherStorage(srcVolume, destStoragePool);
                 VolumeInfo destVolumeInfo = volumeDataFactory.getVolume(destVolume.getId(), destDataStore);
@@ -1657,7 +1658,9 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
                             MigrateDiskInfo.DriverType.RAW, MigrateDiskInfo.Source.DEV, connectedPath);
                     migrateStorage.put(srcVolumeInfo.getPath(), migrateDiskInfo);
                     srcVolumeInfoToDestVolumeInfo.put(srcVolumeInfo, destVolumeInfo);
-                    isAnyVolumeOnManagedStorage = true;
+                    migrateDiskInfo.setIsDestDiskOnManagedStorage(destStoragePool.isManaged());
+                    migrateDiskInfo.setIsSourceDiskOnManagedStorage(sourceStoragePool.isManaged());
+                    migrateDiskInfoList.add(migrateDiskInfo);
                 } else if (destStoragePool.isLocal()) {
                     //TODO enhance variables naming
                     DiskOfferingVO diskOffering = diskOfferingDao.findById(srcVolume.getDiskOfferingId());
@@ -1678,7 +1681,7 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
 
                     String libvirtDestinyImagesPath = generateLibirtDestinyImagesPath(destVolumeInfo, rootImageProvisioningAnswer);
 
-                    configureDiskInfoToBeMigrated(migrateStorage, srcVolumeInfo, destStoragePool, destVolume, destVolumeInfo, libvirtDestinyImagesPath);
+                    configureDiskInfoToBeMigrated(migrateStorage, srcVolumeInfo, sourceStoragePool, destStoragePool, destVolume, destVolumeInfo, libvirtDestinyImagesPath, migrateDiskInfoList);
                 }
             }
 
@@ -1706,7 +1709,7 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
 
             migrateCommand.setMigrateStorage(migrateStorage);
 
-            migrateCommand.setIsAnyVolumeOnManagedStorage(isAnyVolumeOnManagedStorage);
+            migrateCommand.setMigrateDiskInfoList(migrateDiskInfoList);
 
             String autoConvergence = configDao.getValue(Config.KvmAutoConvergence.toString());
             boolean kvmAutoConvergence = Boolean.parseBoolean(autoConvergence);
@@ -1757,8 +1760,8 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
     /**
      * TODO
      */
-    private void configureDiskInfoToBeMigrated(Map<String, MigrateDiskInfo> migrateStorage, VolumeInfo srcVolumeInfo, StoragePoolVO destStoragePool, VolumeVO destVolume,
-            VolumeInfo destVolumeInfo, String libvirtDestImgPath) {
+    private void configureDiskInfoToBeMigrated(Map<String, MigrateDiskInfo> migrateStorage, VolumeInfo srcVolumeInfo, StoragePoolVO sourceStoragePool, StoragePoolVO destStoragePool, VolumeVO destVolume,
+            VolumeInfo destVolumeInfo, String libvirtDestImgPath, List<MigrateDiskInfo> migrateDiskInfoList) {
         MigrateDiskInfo.DriverType driverType = MigrateDiskInfo.DriverType.valueOf(destVolume.getFormat().toString());
         MigrateDiskInfo.DiskType diskType = MigrateDiskInfo.DiskType.BLOCK;
         MigrateDiskInfo.Source diskSource = MigrateDiskInfo.Source.DEV;
@@ -1770,7 +1773,9 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
         }
 
         MigrateCommand.MigrateDiskInfo migrateDiskInfo = new MigrateDiskInfo(srcVolumeInfo.getPath(), diskType, driverType, diskSource, libvirtDestImgPath);
-
+        migrateDiskInfo.setIsDestDiskOnManagedStorage(destStoragePool.isManaged());
+        migrateDiskInfo.setIsSourceDiskOnManagedStorage(sourceStoragePool.isManaged());
+        migrateDiskInfoList.add(migrateDiskInfo);
         migrateStorage.put(srcVolumeInfo.getPath(), migrateDiskInfo);
     }
 

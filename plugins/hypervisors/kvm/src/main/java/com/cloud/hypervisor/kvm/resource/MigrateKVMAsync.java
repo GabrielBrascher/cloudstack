@@ -35,10 +35,10 @@ public class MigrateKVMAsync implements Callable<Domain> {
     private String destIp = "";
     private boolean migrateStorage;
     private boolean autoConvergence;
-    private boolean isAnyVolumeOnManagedStorage;
+    private boolean isDestStorageManaged;
 
-    public MigrateKVMAsync(final LibvirtComputingResource libvirtComputingResource, final Domain dm, final Connect dconn, final String dxml,
-                           final boolean migrateStorage, final boolean autoConvergence, final String vmName, final String destIp, boolean isAnyVolumeOnManagedStorage) {
+    public MigrateKVMAsync(final LibvirtComputingResource libvirtComputingResource, final Domain dm, final Connect dconn, final String dxml, final boolean migrateStorage,
+            final boolean autoConvergence, final String vmName, final String destIp, boolean isDestStorageManaged) {
         this.libvirtComputingResource = libvirtComputingResource;
 
         this.dm = dm;
@@ -48,7 +48,7 @@ public class MigrateKVMAsync implements Callable<Domain> {
         this.autoConvergence = autoConvergence;
         this.vmName = vmName;
         this.destIp = destIp;
-        this.isAnyVolumeOnManagedStorage = isAnyVolumeOnManagedStorage;
+        this.isDestStorageManaged = isDestStorageManaged;
     }
 
     @Override
@@ -60,7 +60,7 @@ public class MigrateKVMAsync implements Callable<Domain> {
             flags |= 1 << 11;
         }
 
-        if (migrateStorage && isAnyVolumeOnManagedStorage) {
+        if (migrateStorage && isDestStorageManaged) {
             flags |= 1 << 6;
         }
 
