@@ -91,6 +91,7 @@ public final class LibvirtMigrateCommandWrapper extends CommandWrapper<MigrateCo
     public Answer execute(final MigrateCommand command, final LibvirtComputingResource libvirtComputingResource) {
         final String vmName = command.getVmName();
         final String destinationUri = createMigrationURI(command.getDestinationIp(), libvirtComputingResource);
+        final boolean isAnyVolumeOnManagedStorage = command.getIsAnyVolumeOnManagedStorage(); //TODO testAnchor
 
         String result = null;
 
@@ -154,7 +155,7 @@ public final class LibvirtMigrateCommandWrapper extends CommandWrapper<MigrateCo
             s_logger.info("Live migration of instance " + vmName + " initiated to destination host: " + dconn.getURI());
             final ExecutorService executor = Executors.newFixedThreadPool(1);
             final Callable<Domain> worker = new MigrateKVMAsync(libvirtComputingResource, dm, dconn, xmlDesc, migrateStorage,
-                    command.isAutoConvergence(), vmName, command.getDestinationIp());
+                    command.isAutoConvergence(), vmName, command.getDestinationIp(), isAnyVolumeOnManagedStorage);
             final Future<Domain> migrateThread = executor.submit(worker);
             executor.shutdown();
             long sleeptime = 0;

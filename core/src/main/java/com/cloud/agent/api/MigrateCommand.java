@@ -33,6 +33,7 @@ public class MigrateCommand extends Command {
     private boolean isWindows;
     private VirtualMachineTO vmTO;
     private boolean executeInSequence = false;
+    private boolean isAnyVolumeOnManagedStorage = false;
 
     protected MigrateCommand() {
     }
@@ -88,6 +89,14 @@ public class MigrateCommand extends Command {
     @Override
     public boolean executeInSequence() {
         return executeInSequence;
+    }
+
+    public boolean getIsAnyVolumeOnManagedStorage() {
+        return isAnyVolumeOnManagedStorage;
+    }
+
+    public void setIsAnyVolumeOnManagedStorage(boolean isAnyVolumeOnManagedStorage) {
+        this.isAnyVolumeOnManagedStorage = isAnyVolumeOnManagedStorage;
     }
 
     public static class MigrateDiskInfo {

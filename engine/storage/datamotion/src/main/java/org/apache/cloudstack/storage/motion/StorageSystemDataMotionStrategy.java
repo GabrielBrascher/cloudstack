@@ -1617,6 +1617,8 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
             Map<String, MigrateCommand.MigrateDiskInfo> migrateStorage = new HashMap<>();
             Map<VolumeInfo, VolumeInfo> srcVolumeInfoToDestVolumeInfo = new HashMap<>();
 
+            boolean isAnyVolumeOnManagedStorage = false;
+
             for (Map.Entry<VolumeInfo, DataStore> entry : volumeDataStoreMap.entrySet()) {
                 VolumeInfo srcVolumeInfo = entry.getKey();
                 DataStore destDataStore = entry.getValue();
@@ -1655,6 +1657,7 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
                             MigrateDiskInfo.DriverType.RAW, MigrateDiskInfo.Source.DEV, connectedPath);
                     migrateStorage.put(srcVolumeInfo.getPath(), migrateDiskInfo);
                     srcVolumeInfoToDestVolumeInfo.put(srcVolumeInfo, destVolumeInfo);
+                    isAnyVolumeOnManagedStorage = true;
                 } else if (destStoragePool.isLocal()) {
                     //TODO enhance variables naming
                     DiskOfferingVO diskOffering = diskOfferingDao.findById(srcVolume.getDiskOfferingId());
@@ -1702,6 +1705,8 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
             migrateCommand.setWait(StorageManager.KvmStorageOnlineMigrationWait.value());
 
             migrateCommand.setMigrateStorage(migrateStorage);
+
+            migrateCommand.setIsAnyVolumeOnManagedStorage(isAnyVolumeOnManagedStorage);
 
             String autoConvergence = configDao.getValue(Config.KvmAutoConvergence.toString());
             boolean kvmAutoConvergence = Boolean.parseBoolean(autoConvergence);
