@@ -61,6 +61,7 @@ import org.xml.sax.SAXException;
 import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.MigrateAnswer;
 import com.cloud.agent.api.MigrateCommand;
+import com.cloud.agent.api.MigrateCommand.MigrateDiskInfo;
 import com.cloud.hypervisor.kvm.resource.LibvirtComputingResource;
 import com.cloud.hypervisor.kvm.resource.LibvirtVMDef.DiskDef;
 import com.cloud.hypervisor.kvm.resource.LibvirtVMDef.InterfaceDef;
@@ -91,6 +92,7 @@ public final class LibvirtMigrateCommandWrapper extends CommandWrapper<MigrateCo
     public Answer execute(final MigrateCommand command, final LibvirtComputingResource libvirtComputingResource) {
         final String vmName = command.getVmName();
         final String destinationUri = createMigrationURI(command.getDestinationIp(), libvirtComputingResource);
+        final List<MigrateDiskInfo> migrateDiskInfoList = command.getMigrateDiskInfoList();
 
         String result = null;
 
@@ -153,8 +155,18 @@ public final class LibvirtMigrateCommandWrapper extends CommandWrapper<MigrateCo
             //run migration in thread so we can monitor it
             s_logger.info("Live migration of instance " + vmName + " initiated to destination host: " + dconn.getURI());
             final ExecutorService executor = Executors.newFixedThreadPool(1);
-            final Callable<Domain> worker = new MigrateKVMAsync(libvirtComputingResource, dm, dconn, xmlDesc, migrateStorage,
-                    command.isAutoConvergence(), vmName, command.getDestinationIp());
+
+            boolean isDestStorageManaged = false;
+            for (MigrateDiskInfo diskInfo : migrateDiskInfoList) {
+                if (diskInfo.getIsDestDiskOnManagedStorage()) {
+                    isDestStorageManaged = true;
+                    break;
+                }
+            }
+
+            final Callable<Domain> worker = new MigrateKVMAsync(libvirtComputingResource, dm, dconn, xmlDesc, migrateStorage, command.isAutoConvergence(), vmName,
+                    command.getDestinationIp(), isDestStorageManaged);
+
             final Future<Domain> migrateThread = executor.submit(worker);
             executor.shutdown();
             long sleeptime = 0;
@@ -338,7 +350,7 @@ public final class LibvirtMigrateCommandWrapper extends CommandWrapper<MigrateCo
                         String path = getPathFromSourceText(migrateStorage.keySet(), sourceText);
 
                         if (path != null) {
-                            MigrateCommand.MigrateDiskInfo migrateDiskInfo = migrateStorage.remove(path);
+                            MigrateCommand.MigrateDiskInfo migrateDiskInfo = migrateStorage.get(path);
 
                             NamedNodeMap diskNodeAttributes = diskNode.getAttributes();
                             Node diskNodeAttribute = diskNodeAttributes.getNamedItem("type");
@@ -375,10 +387,6 @@ public final class LibvirtMigrateCommandWrapper extends CommandWrapper<MigrateCo
                     }
                 }
             }
-        }
-
-        if (!migrateStorage.isEmpty()) {
-            throw new CloudRuntimeException("Disk info was passed into LibvirtMigrateCommandWrapper.replaceStorage that was not used.");
         }
 
         return getXml(doc);

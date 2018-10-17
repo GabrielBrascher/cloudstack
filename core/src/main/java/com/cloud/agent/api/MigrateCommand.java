@@ -19,7 +19,9 @@
 
 package com.cloud.agent.api;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import com.cloud.agent.api.to.VirtualMachineTO;
@@ -33,6 +35,7 @@ public class MigrateCommand extends Command {
     private boolean isWindows;
     private VirtualMachineTO vmTO;
     private boolean executeInSequence = false;
+    private List<MigrateDiskInfo> migrateDiskInfoList = new ArrayList<>();
 
     protected MigrateCommand() {
     }
@@ -85,6 +88,14 @@ public class MigrateCommand extends Command {
         return this.hostGuid;
     }
 
+    public List<MigrateDiskInfo> getMigrateDiskInfoList() {
+        return migrateDiskInfoList;
+    }
+
+    public void setMigrateDiskInfoList(List<MigrateDiskInfo> migrateDiskInfoList) {
+        this.migrateDiskInfoList = migrateDiskInfoList;
+    }
+
     @Override
     public boolean executeInSequence() {
         return executeInSequence;
@@ -123,6 +134,8 @@ public class MigrateCommand extends Command {
         private final DriverType driverType;
         private final Source source;
         private final String sourceText;
+        private boolean isDestDiskOnManagedStorage;
+        private boolean isSourceDiskOnManagedStorage;
 
         public MigrateDiskInfo(final String serialNumber, final DiskType diskType, final DriverType driverType, final Source source, final String sourceText) {
             this.serialNumber = serialNumber;
@@ -150,6 +163,22 @@ public class MigrateCommand extends Command {
 
         public String getSourceText() {
             return sourceText;
+        }
+
+        public boolean getIsDestDiskOnManagedStorage() {
+            return isDestDiskOnManagedStorage;
+        }
+
+        public void setIsDestDiskOnManagedStorage(boolean isDestDiskOnManagedStorage) {
+            this.isDestDiskOnManagedStorage = isDestDiskOnManagedStorage;
+        }
+
+        public boolean getIsSourceDiskOnManagedStorage() {
+            return isSourceDiskOnManagedStorage;
+        }
+
+        public void setIsSourceDiskOnManagedStorage(boolean isSourceDiskOnManagedStorage) {
+            this.isSourceDiskOnManagedStorage = isSourceDiskOnManagedStorage;
         }
     }
 }

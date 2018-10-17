@@ -18,15 +18,71 @@
  */
 package org.apache.cloudstack.storage.motion;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+
+import javax.inject.Inject;
+
+import org.apache.cloudstack.engine.subsystem.api.storage.ChapInfo;
+import org.apache.cloudstack.engine.subsystem.api.storage.ClusterScope;
+import org.apache.cloudstack.engine.subsystem.api.storage.CopyCommandResult;
+import org.apache.cloudstack.engine.subsystem.api.storage.DataMotionStrategy;
+import org.apache.cloudstack.engine.subsystem.api.storage.DataObject;
+import org.apache.cloudstack.engine.subsystem.api.storage.DataStore;
+import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreCapabilities;
+import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreManager;
+import org.apache.cloudstack.engine.subsystem.api.storage.EndPoint;
+import org.apache.cloudstack.engine.subsystem.api.storage.EndPointSelector;
+import org.apache.cloudstack.engine.subsystem.api.storage.HostScope;
+import org.apache.cloudstack.engine.subsystem.api.storage.ObjectInDataStoreStateMachine.Event;
+import org.apache.cloudstack.engine.subsystem.api.storage.PrimaryDataStoreDriver;
+import org.apache.cloudstack.engine.subsystem.api.storage.Scope;
+import org.apache.cloudstack.engine.subsystem.api.storage.SnapshotInfo;
+import org.apache.cloudstack.engine.subsystem.api.storage.StorageAction;
+import org.apache.cloudstack.engine.subsystem.api.storage.StorageCacheManager;
+import org.apache.cloudstack.engine.subsystem.api.storage.StrategyPriority;
+import org.apache.cloudstack.engine.subsystem.api.storage.TemplateDataFactory;
+import org.apache.cloudstack.engine.subsystem.api.storage.TemplateInfo;
+import org.apache.cloudstack.engine.subsystem.api.storage.VolumeDataFactory;
+import org.apache.cloudstack.engine.subsystem.api.storage.VolumeInfo;
+import org.apache.cloudstack.engine.subsystem.api.storage.VolumeService;
+import org.apache.cloudstack.engine.subsystem.api.storage.VolumeService.VolumeApiResult;
+import org.apache.cloudstack.engine.subsystem.api.storage.ZoneScope;
+import org.apache.cloudstack.framework.async.AsyncCallFuture;
+import org.apache.cloudstack.framework.async.AsyncCompletionCallback;
+import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
+import org.apache.cloudstack.storage.command.CopyCmdAnswer;
+import org.apache.cloudstack.storage.command.CopyCommand;
+import org.apache.cloudstack.storage.command.ResignatureAnswer;
+import org.apache.cloudstack.storage.command.ResignatureCommand;
+import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
+import org.apache.cloudstack.storage.datastore.db.SnapshotDataStoreDao;
+import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
+import org.apache.cloudstack.storage.to.PrimaryDataStoreTO;
+import org.apache.cloudstack.storage.to.VolumeObjectTO;
+import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang.math.NumberUtils;
+import org.apache.log4j.Logger;
+import org.springframework.stereotype.Component;
+
 import com.cloud.agent.AgentManager;
 import com.cloud.agent.api.Answer;
-import com.cloud.agent.api.storage.CopyVolumeAnswer;
-import com.cloud.agent.api.storage.CopyVolumeCommand;
 import com.cloud.agent.api.MigrateAnswer;
 import com.cloud.agent.api.MigrateCommand;
+import com.cloud.agent.api.MigrateCommand.MigrateDiskInfo;
 import com.cloud.agent.api.ModifyTargetsAnswer;
 import com.cloud.agent.api.ModifyTargetsCommand;
 import com.cloud.agent.api.PrepareForMigrationCommand;
+import com.cloud.agent.api.storage.CopyVolumeAnswer;
+import com.cloud.agent.api.storage.CopyVolumeCommand;
+import com.cloud.agent.api.storage.CreateAnswer;
+import com.cloud.agent.api.storage.CreateCommand;
 import com.cloud.agent.api.storage.MigrateVolumeAnswer;
 import com.cloud.agent.api.storage.MigrateVolumeCommand;
 import com.cloud.agent.api.to.DataStoreTO;
@@ -49,11 +105,12 @@ import com.cloud.storage.DiskOfferingVO;
 import com.cloud.storage.Snapshot;
 import com.cloud.storage.SnapshotVO;
 import com.cloud.storage.Storage.ImageFormat;
+import com.cloud.storage.Storage.StoragePoolType;
 import com.cloud.storage.StorageManager;
 import com.cloud.storage.StoragePool;
 import com.cloud.storage.VMTemplateVO;
-import com.cloud.storage.VolumeDetailVO;
 import com.cloud.storage.Volume;
+import com.cloud.storage.VolumeDetailVO;
 import com.cloud.storage.VolumeVO;
 import com.cloud.storage.dao.DiskOfferingDao;
 import com.cloud.storage.dao.GuestOSCategoryDao;
@@ -67,67 +124,12 @@ import com.cloud.storage.dao.VolumeDetailsDao;
 import com.cloud.utils.NumbersUtil;
 import com.cloud.utils.db.GlobalLock;
 import com.cloud.utils.exception.CloudRuntimeException;
+import com.cloud.vm.DiskProfile;
+import com.cloud.vm.VMInstanceVO;
 import com.cloud.vm.VirtualMachine;
 import com.cloud.vm.VirtualMachineManager;
-import com.cloud.vm.VMInstanceVO;
 import com.cloud.vm.dao.VMInstanceDao;
-
 import com.google.common.base.Preconditions;
-
-import org.apache.cloudstack.engine.subsystem.api.storage.ChapInfo;
-import org.apache.cloudstack.engine.subsystem.api.storage.ClusterScope;
-import org.apache.cloudstack.engine.subsystem.api.storage.CopyCommandResult;
-import org.apache.cloudstack.engine.subsystem.api.storage.DataMotionStrategy;
-import org.apache.cloudstack.engine.subsystem.api.storage.DataObject;
-import org.apache.cloudstack.engine.subsystem.api.storage.DataStore;
-import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreCapabilities;
-import org.apache.cloudstack.engine.subsystem.api.storage.DataStoreManager;
-import org.apache.cloudstack.engine.subsystem.api.storage.EndPoint;
-import org.apache.cloudstack.engine.subsystem.api.storage.EndPointSelector;
-import org.apache.cloudstack.engine.subsystem.api.storage.HostScope;
-import org.apache.cloudstack.engine.subsystem.api.storage.ObjectInDataStoreStateMachine.Event;
-import org.apache.cloudstack.engine.subsystem.api.storage.PrimaryDataStoreDriver;
-import org.apache.cloudstack.engine.subsystem.api.storage.Scope;
-import org.apache.cloudstack.engine.subsystem.api.storage.SnapshotInfo;
-import org.apache.cloudstack.engine.subsystem.api.storage.StorageAction;
-import org.apache.cloudstack.engine.subsystem.api.storage.StorageCacheManager;
-import org.apache.cloudstack.engine.subsystem.api.storage.StrategyPriority;
-import org.apache.cloudstack.engine.subsystem.api.storage.TemplateInfo;
-import org.apache.cloudstack.engine.subsystem.api.storage.VolumeDataFactory;
-import org.apache.cloudstack.engine.subsystem.api.storage.VolumeInfo;
-import org.apache.cloudstack.engine.subsystem.api.storage.VolumeService;
-import org.apache.cloudstack.engine.subsystem.api.storage.VolumeService.VolumeApiResult;
-import org.apache.cloudstack.engine.subsystem.api.storage.ZoneScope;
-import org.apache.cloudstack.framework.async.AsyncCallFuture;
-import org.apache.cloudstack.framework.async.AsyncCompletionCallback;
-import org.apache.cloudstack.framework.config.dao.ConfigurationDao;
-import org.apache.cloudstack.storage.command.CopyCmdAnswer;
-import org.apache.cloudstack.storage.command.CopyCommand;
-import org.apache.cloudstack.storage.command.ResignatureAnswer;
-import org.apache.cloudstack.storage.command.ResignatureCommand;
-import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
-import org.apache.cloudstack.storage.datastore.db.SnapshotDataStoreDao;
-import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
-import org.apache.cloudstack.storage.to.PrimaryDataStoreTO;
-import org.apache.cloudstack.storage.to.VolumeObjectTO;
-import org.apache.commons.lang.StringUtils;
-import org.apache.commons.lang.math.NumberUtils;
-import org.apache.log4j.Logger;
-
-import org.springframework.stereotype.Component;
-
-import javax.inject.Inject;
-
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
-import java.util.Set;
-import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 
 @Component
 public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
@@ -157,6 +159,9 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
     @Inject private VolumeService _volumeService;
     @Inject private StorageCacheManager cacheMgr;
     @Inject private EndPointSelector selector;
+
+    @Inject
+    private TemplateDataFactory tmplFactory;
 
     @Override
     public StrategyPriority canHandle(DataObject srcData, DataObject destData) {
@@ -253,25 +258,7 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
     @Override
     public StrategyPriority canHandle(Map<VolumeInfo, DataStore> volumeMap, Host srcHost, Host destHost) {
         if (HypervisorType.KVM.equals(srcHost.getHypervisorType())) {
-            Set<VolumeInfo> volumeInfoSet = volumeMap.keySet();
-
-            for (VolumeInfo volumeInfo : volumeInfoSet) {
-                StoragePoolVO storagePoolVO = _storagePoolDao.findById(volumeInfo.getPoolId());
-
-                if (storagePoolVO.isManaged()) {
-                    return StrategyPriority.HIGHEST;
-                }
-            }
-
-            Collection<DataStore> dataStores = volumeMap.values();
-
-            for (DataStore dataStore : dataStores) {
-                StoragePoolVO storagePoolVO = _storagePoolDao.findById(dataStore.getId());
-
-                if (storagePoolVO.isManaged()) {
-                    return StrategyPriority.HIGHEST;
-                }
-            }
+            return StrategyPriority.HIGHEST;
         }
 
         return StrategyPriority.CANT_HANDLE;
@@ -1693,8 +1680,12 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
 
             verifyLiveMigrationMapForKVM(volumeDataStoreMap);
 
+            VMInstanceVO vmInstance = _vmDao.findById(vmTO.getId());
+            vmTO.setState(vmInstance.getState());
+
             Map<String, MigrateCommand.MigrateDiskInfo> migrateStorage = new HashMap<>();
             Map<VolumeInfo, VolumeInfo> srcVolumeInfoToDestVolumeInfo = new HashMap<>();
+            List<MigrateDiskInfo> migrateDiskInfoList = new ArrayList<MigrateDiskInfo>();
 
             for (Map.Entry<VolumeInfo, DataStore> entry : volumeDataStoreMap.entrySet()) {
                 VolumeInfo srcVolumeInfo = entry.getKey();
@@ -1702,6 +1693,7 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
 
                 VolumeVO srcVolume = _volumeDao.findById(srcVolumeInfo.getId());
                 StoragePoolVO destStoragePool = _storagePoolDao.findById(destDataStore.getId());
+                StoragePoolVO sourceStoragePool = _storagePoolDao.findById(srcVolumeInfo.getPoolId());
 
                 VolumeVO destVolume = duplicateVolumeOnAnotherStorage(srcVolume, destStoragePool);
                 VolumeInfo destVolumeInfo = _volumeDataFactory.getVolume(destVolume.getId(), destDataStore);
@@ -1728,17 +1720,40 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
 
                 _volumeService.grantAccess(destVolumeInfo, destHost, destDataStore);
 
-                String connectedPath = connectHostToVolume(destHost, destVolumeInfo.getPoolId(), destVolumeInfo.get_iScsiName());
+                if (destStoragePool.isManaged()) {
+                    String connectedPath = connectHostToVolume(destHost, destVolumeInfo.getPoolId(), destVolumeInfo.get_iScsiName());
 
-                MigrateCommand.MigrateDiskInfo migrateDiskInfo = new MigrateCommand.MigrateDiskInfo(srcVolumeInfo.getPath(),
-                        MigrateCommand.MigrateDiskInfo.DiskType.BLOCK,
-                        MigrateCommand.MigrateDiskInfo.DriverType.RAW,
-                        MigrateCommand.MigrateDiskInfo.Source.DEV,
-                        connectedPath);
+                    MigrateCommand.MigrateDiskInfo migrateDiskInfo = new MigrateCommand.MigrateDiskInfo(srcVolumeInfo.getPath(), MigrateCommand.MigrateDiskInfo.DiskType.BLOCK,
+                            MigrateCommand.MigrateDiskInfo.DriverType.RAW, MigrateCommand.MigrateDiskInfo.Source.DEV, connectedPath);
 
-                migrateStorage.put(srcVolumeInfo.getPath(), migrateDiskInfo);
+                    migrateStorage.put(srcVolumeInfo.getPath(), migrateDiskInfo);
 
-                srcVolumeInfoToDestVolumeInfo.put(srcVolumeInfo, destVolumeInfo);
+                    migrateDiskInfo.setIsDestDiskOnManagedStorage(destStoragePool.isManaged());
+                    migrateDiskInfo.setIsSourceDiskOnManagedStorage(sourceStoragePool.isManaged());
+                    migrateDiskInfoList.add(migrateDiskInfo);
+
+                    srcVolumeInfoToDestVolumeInfo.put(srcVolumeInfo, destVolumeInfo);
+                } else if (destStoragePool.isLocal()) {
+                    DiskOfferingVO diskOffering = _diskOfferingDao.findById(srcVolume.getDiskOfferingId());
+                    DiskProfile diskProfile = new DiskProfile(destVolume, diskOffering, HypervisorType.KVM);
+                    TemplateInfo templateImage = tmplFactory.getTemplate(destVolume.getTemplateId(), DataStoreRole.Image);
+
+                    CreateCommand rootImageProvisioningCommand = new CreateCommand(diskProfile, templateImage.getUuid(), destStoragePool, true);
+                    Answer rootImageProvisioningAnswer = _agentMgr.easySend(destHost.getId(), rootImageProvisioningCommand);
+
+                    if (rootImageProvisioningAnswer == null) {
+                        throw new CloudRuntimeException(String.format("Migration with storage of vm [%s] failed while provisioning root image", vmTO.getName()));
+                    }
+
+                    if (!rootImageProvisioningAnswer.getResult()) {
+                        throw new CloudRuntimeException(String.format("Unable to modify target volume on the host [host id:%s, name:%s]", destHost.getId(), destHost.getName()));
+                    }
+
+                    String libvirtDestinyImagesPath = generateLibirtDestinyImagesPath(destVolumeInfo, rootImageProvisioningAnswer);
+                    configureDiskInfoToBeMigrated(migrateStorage, srcVolumeInfo, sourceStoragePool, destStoragePool, destVolume, destVolumeInfo, libvirtDestinyImagesPath,
+                            migrateDiskInfoList);
+                    srcVolumeInfoToDestVolumeInfo.put(srcVolumeInfo, destVolumeInfo);
+                }
             }
 
             PrepareForMigrationCommand pfmc = new PrepareForMigrationCommand(vmTO);
@@ -1766,7 +1781,9 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
 
             migrateCommand.setMigrateStorage(migrateStorage);
 
+            migrateCommand.setMigrateDiskInfoList(migrateDiskInfoList);
             String autoConvergence = _configDao.getValue(Config.KvmAutoConvergence.toString());
+
             boolean kvmAutoConvergence = Boolean.parseBoolean(autoConvergence);
 
             migrateCommand.setAutoConvergence(kvmAutoConvergence);
@@ -1801,6 +1818,37 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
 
             callback.complete(result);
         }
+    }
+
+    /**
+     * TODO
+     */
+    private String generateLibirtDestinyImagesPath(VolumeInfo destVolumeInfo, Answer rootImageProvisioningAnswer) {
+        String libvirtDestImgsPath = StringUtils.EMPTY;
+        if (rootImageProvisioningAnswer instanceof CreateAnswer) {
+            libvirtDestImgsPath = ((CreateAnswer)rootImageProvisioningAnswer).getVolume().getName() + "/";
+        }
+        return libvirtDestImgsPath + destVolumeInfo.getUuid();
+    }
+
+    /**
+     * TODO
+     */
+    private void configureDiskInfoToBeMigrated(Map<String, MigrateDiskInfo> migrateStorage, VolumeInfo srcVolumeInfo, StoragePoolVO sourceStoragePool,
+            StoragePoolVO destStoragePool, VolumeVO destVolume, VolumeInfo destVolumeInfo, String libvirtDestImgPath, List<MigrateDiskInfo> migrateDiskInfoList) {
+        MigrateDiskInfo.DriverType driverType = MigrateDiskInfo.DriverType.valueOf(destVolume.getFormat().toString());
+        MigrateDiskInfo.DiskType diskType = MigrateDiskInfo.DiskType.BLOCK;
+        MigrateDiskInfo.Source diskSource = MigrateDiskInfo.Source.DEV;
+        StoragePoolType poolType = destStoragePool.getPoolType();
+        if (poolType.equals(StoragePoolType.SharedMountPoint) || poolType.equals(StoragePoolType.Filesystem) || poolType.equals(StoragePoolType.NetworkFilesystem)) {
+            diskType = MigrateCommand.MigrateDiskInfo.DiskType.FILE;
+            diskSource = MigrateCommand.MigrateDiskInfo.Source.FILE;
+        }
+        MigrateCommand.MigrateDiskInfo migrateDiskInfo = new MigrateDiskInfo(srcVolumeInfo.getPath(), diskType, driverType, diskSource, libvirtDestImgPath);
+        migrateDiskInfo.setIsDestDiskOnManagedStorage(destStoragePool.isManaged());
+        migrateDiskInfo.setIsSourceDiskOnManagedStorage(sourceStoragePool.isManaged());
+        migrateDiskInfoList.add(migrateDiskInfo);
+        migrateStorage.put(srcVolumeInfo.getPath(), migrateDiskInfo);
     }
 
     private void handlePostMigration(boolean success, Map<VolumeInfo, VolumeInfo> srcVolumeInfoToDestVolumeInfo, VirtualMachineTO vmTO, Host destHost) {
@@ -1989,10 +2037,6 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
 
             if (destStoragePoolVO == null) {
                 throw new CloudRuntimeException("Destination storage pool with ID " + dataStore.getId() + " was not located.");
-            }
-
-            if (!destStoragePoolVO.isManaged()) {
-                throw new CloudRuntimeException("Migrating a volume online with KVM can currently only be done when moving to managed storage.");
             }
         }
     }

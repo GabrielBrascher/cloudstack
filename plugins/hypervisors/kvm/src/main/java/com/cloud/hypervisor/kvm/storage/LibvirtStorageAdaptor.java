@@ -24,7 +24,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import org.apache.cloudstack.utils.qemu.QemuImg;
+import org.apache.cloudstack.utils.qemu.QemuImg.PhysicalDiskFormat;
+import org.apache.cloudstack.utils.qemu.QemuImgException;
+import org.apache.cloudstack.utils.qemu.QemuImgFile;
 import org.apache.commons.codec.binary.Base64;
+import org.apache.commons.lang.StringUtils;
 import org.apache.log4j.Logger;
 import org.libvirt.Connect;
 import org.libvirt.LibvirtException;
@@ -42,12 +47,6 @@ import com.ceph.rbd.RbdException;
 import com.ceph.rbd.RbdImage;
 import com.ceph.rbd.jna.RbdImageInfo;
 import com.ceph.rbd.jna.RbdSnapInfo;
-
-import org.apache.cloudstack.utils.qemu.QemuImg;
-import org.apache.cloudstack.utils.qemu.QemuImg.PhysicalDiskFormat;
-import org.apache.cloudstack.utils.qemu.QemuImgException;
-import org.apache.cloudstack.utils.qemu.QemuImgFile;
-
 import com.cloud.exception.InternalErrorException;
 import com.cloud.hypervisor.kvm.resource.LibvirtConnection;
 import com.cloud.hypervisor.kvm.resource.LibvirtSecretDef;
@@ -751,18 +750,29 @@ public class LibvirtStorageAdaptor implements StorageAdaptor {
 
     @Override
     public boolean disconnectPhysicalDiskByPath(String localPath) {
-        // we've only ever cleaned up ISOs that are NFS mounted
-        String poolUuid = null;
-        if (localPath != null && localPath.startsWith(_mountPoint) && localPath.endsWith(".iso")) {
-            String[] token = localPath.split("/");
-
-            if (token.length > 3) {
-                poolUuid = token[2];
-            }
-        } else {
-            return false;
+        if (StringUtils.startsWith(localPath, _mountPoint) && localPath.endsWith(".iso")) {
+            return deleteIsoInNfsMountPoint(localPath);
         }
 
+        if (StringUtils.startsWith(localPath, "/var/lib/libvirt/images/")) {
+            try {
+                Connect conn = LibvirtConnection.getConnection();
+                StorageVol storageVolLookupByPath = conn.storageVolLookupByPath(localPath);
+                storageVolLookupByPath.delete(0);
+                return true;
+            } catch (LibvirtException e) {
+                s_logger.error(e);
+            }
+        }
+        return false;
+    }
+
+    private boolean deleteIsoInNfsMountPoint(String localPath) {
+        String[] token = localPath.split("/");
+        String poolUuid = null;
+        if (token.length > 3) {
+            poolUuid = token[2];
+        }
         if (poolUuid == null) {
             return false;
         }
@@ -776,8 +786,7 @@ public class LibvirtStorageAdaptor implements StorageAdaptor {
 
             return true;
         } catch (LibvirtException ex) {
-            return false;
-        } catch (CloudRuntimeException ex) {
+            s_logger.debug(ex);
             return false;
         }
     }
