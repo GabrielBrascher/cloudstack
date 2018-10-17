@@ -171,6 +171,10 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
             }
         }
 
+        if (srcData instanceof VolumeInfo && destData instanceof VolumeInfo) {
+            return StrategyPriority.HIGHEST;
+        }
+
         if (srcData instanceof TemplateInfo && destData instanceof VolumeInfo &&
                 (srcData.getDataStore().getId() == destData.getDataStore().getId()) &&
                 (canHandle(srcData) || canHandle(destData))) {
@@ -279,7 +283,7 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
             VolumeInfo srcVolumeInfo = (VolumeInfo)srcData;
             VolumeInfo destVolumeInfo = (VolumeInfo)destData;
 
-            handleCopyAsyncForVolumes(srcVolumeInfo, destVolumeInfo, callback);
+            handleCopyAsyncForVolumesOnManagedStorage(srcVolumeInfo, destVolumeInfo, callback);
         } else if (srcData instanceof VolumeInfo && destData instanceof TemplateInfo &&
                 (destData.getDataStore().getRole() == DataStoreRole.Image || destData.getDataStore().getRole() == DataStoreRole.ImageCache)) {
             VolumeInfo srcVolumeInfo = (VolumeInfo)srcData;
@@ -342,7 +346,7 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
         handleCreateVolumeFromTemplateBothOnStorageSystem(srcTemplateInfo, destVolumeInfo, callback);
     }
 
-    private void handleCopyAsyncForVolumes(VolumeInfo srcVolumeInfo, VolumeInfo destVolumeInfo, AsyncCompletionCallback<CopyCommandResult> callback) {
+    private void handleCopyAsyncForVolumesOnManagedStorage(VolumeInfo srcVolumeInfo, VolumeInfo destVolumeInfo, AsyncCompletionCallback<CopyCommandResult> callback) {
         if (srcVolumeInfo.getState() == Volume.State.Migrating) {
             if (isVolumeOnManagedStorage(srcVolumeInfo)) {
                 if (destVolumeInfo.getDataStore().getRole() == DataStoreRole.Image || destVolumeInfo.getDataStore().getRole() == DataStoreRole.ImageCache) {
@@ -1710,7 +1714,11 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
 
                 destVolume = _volumeDao.findById(destVolume.getId());
 
-                destVolume.setPath(destVolume.get_iScsiName());
+                if (StringUtils.isNotEmpty(destVolume.get_iScsiName())) {
+                    destVolume.setPath(destVolume.get_iScsiName());
+                } else {
+                    destVolume.setPath(destVolume.getUuid());
+                }
 
                 _volumeDao.update(destVolume.getId(), destVolume);
 
@@ -1736,9 +1744,10 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
                 } else if (destStoragePool.isLocal()) {
                     DiskOfferingVO diskOffering = _diskOfferingDao.findById(srcVolume.getDiskOfferingId());
                     DiskProfile diskProfile = new DiskProfile(destVolume, diskOffering, HypervisorType.KVM);
-                    TemplateInfo templateImage = tmplFactory.getTemplate(destVolume.getTemplateId(), DataStoreRole.Image);
 
-                    CreateCommand rootImageProvisioningCommand = new CreateCommand(diskProfile, templateImage.getUuid(), destStoragePool, true);
+                    String templateUuid = getTemplateUuid(destVolume);
+
+                    CreateCommand rootImageProvisioningCommand = new CreateCommand(diskProfile, templateUuid, destStoragePool, true);
                     Answer rootImageProvisioningAnswer = _agentMgr.easySend(destHost.getId(), rootImageProvisioningCommand);
 
                     if (rootImageProvisioningAnswer == null) {
@@ -1818,6 +1827,15 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
 
             callback.complete(result);
         }
+    }
+
+    private String getTemplateUuid(VolumeVO destVolume) {
+        Long templateId = destVolume.getTemplateId();
+        if (templateId == null) {
+            return null;
+        }
+        TemplateInfo templateImage = tmplFactory.getTemplate(templateId, DataStoreRole.Image);
+        return templateImage.getUuid();
     }
 
     /**
