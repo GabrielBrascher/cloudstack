@@ -16,9 +16,9 @@
 // under the License.
 package com.cloud.agent.api.to;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.HashMap;
 
 import com.cloud.template.VirtualMachineTemplate.BootloaderType;
 import com.cloud.vm.VirtualMachine;
@@ -71,6 +71,7 @@ public class VirtualMachineTO {
     String configDriveIsoFile = null;
 
     Double cpuQuotaPercentage = null;
+    private VirtualMachine.State State;
 
     Map<String, String> guestOsDetails = new HashMap<String, String>();
 
@@ -349,5 +350,13 @@ public class VirtualMachineTO {
 
     public void setCpuQuotaPercentage(Double cpuQuotaPercentage) {
         this.cpuQuotaPercentage = cpuQuotaPercentage;
+    }
+
+    public VirtualMachine.State getState() {
+        return State;
+    }
+
+    public void setState(VirtualMachine.State state) {
+        State = state;
     }
 }

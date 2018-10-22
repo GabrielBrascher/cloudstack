@@ -24,6 +24,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import org.apache.cloudstack.utils.qemu.QemuImg;
+import org.apache.cloudstack.utils.qemu.QemuImg.PhysicalDiskFormat;
+import org.apache.cloudstack.utils.qemu.QemuImgException;
+import org.apache.cloudstack.utils.qemu.QemuImgFile;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.log4j.Logger;
 import org.libvirt.Connect;
@@ -42,12 +46,6 @@ import com.ceph.rbd.RbdException;
 import com.ceph.rbd.RbdImage;
 import com.ceph.rbd.jna.RbdImageInfo;
 import com.ceph.rbd.jna.RbdSnapInfo;
-
-import org.apache.cloudstack.utils.qemu.QemuImg;
-import org.apache.cloudstack.utils.qemu.QemuImg.PhysicalDiskFormat;
-import org.apache.cloudstack.utils.qemu.QemuImgException;
-import org.apache.cloudstack.utils.qemu.QemuImgFile;
-
 import com.cloud.exception.InternalErrorException;
 import com.cloud.hypervisor.kvm.resource.LibvirtConnection;
 import com.cloud.hypervisor.kvm.resource.LibvirtSecretDef;

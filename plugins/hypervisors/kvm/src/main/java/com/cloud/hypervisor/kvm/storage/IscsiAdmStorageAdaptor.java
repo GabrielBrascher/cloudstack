@@ -21,11 +21,10 @@ import java.util.List;
 import java.util.Map;
 
 import org.apache.cloudstack.utils.qemu.QemuImg;
+import org.apache.cloudstack.utils.qemu.QemuImg.PhysicalDiskFormat;
 import org.apache.cloudstack.utils.qemu.QemuImgException;
 import org.apache.cloudstack.utils.qemu.QemuImgFile;
 import org.apache.log4j.Logger;
-
-import org.apache.cloudstack.utils.qemu.QemuImg.PhysicalDiskFormat;
 
 import com.cloud.agent.api.to.DiskTO;
 import com.cloud.storage.Storage;
@@ -349,8 +348,7 @@ public class IscsiAdmStorageAdaptor implements StorageAdaptor {
         String search4 = "-lun-";
 
         if (!localPath.contains(search3)) {
-            // this volume doesn't below to this adaptor, so just return true
-            return true;
+            return false;
         }
 
         int index = localPath.indexOf(search2);

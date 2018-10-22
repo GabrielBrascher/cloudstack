@@ -22,15 +22,15 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-
-import org.apache.log4j.Logger;
 
 import org.apache.cloudstack.storage.to.PrimaryDataStoreTO;
 import org.apache.cloudstack.storage.to.VolumeObjectTO;
 import org.apache.cloudstack.utils.qemu.QemuImg.PhysicalDiskFormat;
+import org.apache.log4j.Logger;
+import org.reflections.Reflections;
 
 import com.cloud.agent.api.to.DiskTO;
 import com.cloud.agent.api.to.VirtualMachineTO;
@@ -42,8 +42,7 @@ import com.cloud.storage.Storage.StoragePoolType;
 import com.cloud.storage.StorageLayer;
 import com.cloud.storage.Volume;
 import com.cloud.utils.exception.CloudRuntimeException;
-
-import org.reflections.Reflections;
+import com.cloud.vm.VirtualMachine;
 
 public class KVMStoragePoolManager {
     private static final Logger s_logger = Logger.getLogger(KVMStoragePoolManager.class);
@@ -138,20 +137,27 @@ public class KVMStoragePoolManager {
         List<DiskTO> disks = Arrays.asList(vmSpec.getDisks());
 
         for (DiskTO disk : disks) {
-            if (disk.getType() != Volume.Type.ISO) {
-                VolumeObjectTO vol = (VolumeObjectTO)disk.getData();
-                PrimaryDataStoreTO store = (PrimaryDataStoreTO)vol.getDataStore();
-                KVMStoragePool pool = getStoragePool(store.getPoolType(), store.getUuid());
+            if (disk.getType() == Volume.Type.ISO) {
+                result = true;
+                continue;
+            }
 
-                StorageAdaptor adaptor = getStorageAdaptor(pool.getType());
+            VolumeObjectTO vol = (VolumeObjectTO)disk.getData();
+            PrimaryDataStoreTO store = (PrimaryDataStoreTO)vol.getDataStore();
 
-                result = adaptor.connectPhysicalDisk(vol.getPath(), pool, disk.getDetails());
+            if (!store.isManaged() && VirtualMachine.State.Migrating.equals(vmSpec.getState())) {
+                result = true;
+                continue;
+            }
 
-                if (!result) {
-                    s_logger.error("Failed to connect disks via vm spec for vm: " + vmName + " volume:" + vol.toString());
+            KVMStoragePool pool = getStoragePool(store.getPoolType(), store.getUuid());
+            StorageAdaptor adaptor = getStorageAdaptor(pool.getType());
 
-                    return result;
-                }
+            result = adaptor.connectPhysicalDisk(vol.getPath(), pool, disk.getDetails());
+
+            if (!result) {
+                s_logger.error("Failed to connect disks via vm spec for vm: " + vmName + " volume:" + vol.toString());
+                return result;
             }
         }
 

@@ -35,3 +35,6 @@ INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`,
 INSERT INTO `cloud`.`role_permissions` (`uuid`, `role_id`, `rule`, `permission`, `sort_order`) values (UUID(), 4, 'moveNetworkAclItem', 'ALLOW', 260) ON DUPLICATE KEY UPDATE rule=rule;
 
 UPDATE `cloud`.`async_job` SET `removed` = now() WHERE `removed` IS NULL;
+
+-- Allow KVM VM live migration with ROOT volume on local storage
+UPDATE  `cloud`.`hypervisor_capabilities` SET  `storage_motion_supported` = 1 WHERE `hypervisor_capabilities`.`hypervisor_type` = 'KVM';
