@@ -125,13 +125,11 @@ import org.springframework.stereotype.Component;
 import javax.inject.Inject;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -1735,7 +1733,6 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
 
                     migrateStorage.put(srcVolumeInfo.getPath(), migrateDiskInfo);
 
-                    migrateDiskInfo.setDestDiskOnManagedStorage(destStoragePool.isManaged());
                     migrateDiskInfo.setSourceDiskOnLocalStorage(sourceStoragePool.isLocal());
                     migrateDiskInfoList.add(migrateDiskInfo);
 
@@ -1828,7 +1825,7 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
     }
 
     /**
-     * Returns the template Uuid of the given {@link VolumeVO}. 
+     * Returns the template Uuid of the given {@link VolumeVO}.
      */
     private String getTemplateUuid(VolumeVO destVolume) {
         Long templateId = destVolume.getTemplateId();
@@ -1853,7 +1850,7 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
 
     /**
      * Configures a {@link MigrateDiskInfo} of a disk to be migrated to a non managed local storage. The created {@link MigrateDiskInfo} object is added to the given {@link Map}<{@link String}, {@link MigrateDiskInfo}>. </br>
-     * 
+     *
      * The disk type is configured as {@link MigrateDiskInfo.DiskType.BLOCK} and the disk source as {@link MigrateDiskInfo.Source.DEV} by default;
      * in case the Storage pool is of Shared Mount Point, Filesystem or NFS, the disk type is configured as {@link MigrateDiskInfo.DiskType.FILE}
      * and the disk source as {@link MigrateDiskInfo.Source.FILE}.
@@ -1869,7 +1866,6 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
             diskSource = MigrateCommand.MigrateDiskInfo.Source.FILE;
         }
         MigrateCommand.MigrateDiskInfo migrateDiskInfo = new MigrateDiskInfo(srcVolumeInfo.getPath(), diskType, driverType, diskSource, libvirtDestImgPath);
-        migrateDiskInfo.setDestDiskOnManagedStorage(destStoragePool.isManaged());
         migrateDiskInfo.setSourceDiskOnLocalStorage(sourceStoragePool.isLocal());
         migrateDiskInfoList.add(migrateDiskInfo);
         migrateStorage.put(srcVolumeInfo.getPath(), migrateDiskInfo);

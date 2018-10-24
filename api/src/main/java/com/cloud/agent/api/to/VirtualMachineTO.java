@@ -16,9 +16,9 @@
 // under the License.
 package com.cloud.agent.api.to;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.HashMap;
 
 import com.cloud.template.VirtualMachineTemplate.BootloaderType;
 import com.cloud.vm.VirtualMachine;

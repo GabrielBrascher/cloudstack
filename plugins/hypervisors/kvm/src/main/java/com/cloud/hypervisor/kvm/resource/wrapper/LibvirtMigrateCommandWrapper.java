@@ -158,16 +158,8 @@ public final class LibvirtMigrateCommandWrapper extends CommandWrapper<MigrateCo
             s_logger.info("Live migration of instance " + vmName + " initiated to destination host: " + dconn.getURI());
             final ExecutorService executor = Executors.newFixedThreadPool(1);
 
-            boolean isDestStorageManaged = false;
-            for (MigrateDiskInfo diskInfo : migrateDiskInfoList) {
-                if (diskInfo.isDestDiskOnManagedStorage()) {
-                    isDestStorageManaged = true;
-                    break;
-                }
-            }
-
             final Callable<Domain> worker = new MigrateKVMAsync(libvirtComputingResource, dm, dconn, xmlDesc, migrateStorage,
-                    command.isAutoConvergence(), vmName, command.getDestinationIp(), isDestStorageManaged);
+                    command.isAutoConvergence(), vmName, command.getDestinationIp());
             final Future<Domain> migrateThread = executor.submit(worker);
             executor.shutdown();
             long sleeptime = 0;
@@ -298,7 +290,7 @@ public final class LibvirtMigrateCommandWrapper extends CommandWrapper<MigrateCo
     }
 
     /**
-     * Deletes the local volume from the storage pool 
+     * Deletes the local volume from the storage pool
      */
     private void deleteLocalVolume(String localPath) {
         try {

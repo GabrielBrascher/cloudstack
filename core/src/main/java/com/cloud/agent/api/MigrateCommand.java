@@ -134,7 +134,6 @@ public class MigrateCommand extends Command {
         private final DriverType driverType;
         private final Source source;
         private final String sourceText;
-        private boolean isDestDiskOnManagedStorage;
         private boolean isSourceDiskOnLocalStorage;
 
         public MigrateDiskInfo(final String serialNumber, final DiskType diskType, final DriverType driverType, final Source source, final String sourceText) {
@@ -163,14 +162,6 @@ public class MigrateCommand extends Command {
 
         public String getSourceText() {
             return sourceText;
-        }
-
-        public boolean isDestDiskOnManagedStorage() {
-            return isDestDiskOnManagedStorage;
-        }
-
-        public void setDestDiskOnManagedStorage(boolean isDestDiskOnManagedStorage) {
-            this.isDestDiskOnManagedStorage = isDestDiskOnManagedStorage;
         }
 
         public boolean isSourceDiskOnLocalStorage() {

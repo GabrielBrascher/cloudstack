@@ -2608,10 +2608,12 @@
                                                                         var hostObjs = json.findhostsformigrationresponse.host;
                                                                         var items =[];
                                                                         $(hostObjs).each(function () {
-                                                                            items.push({
-                                                                                id: this.id,
-                                                                                description: (this.name + " (" + (this.suitableformigration ? "Suitable": "Not Suitable") + ")")
-                                                                            });
+                                                                        	if (this.requiresStorageMotion == false) {
+                                                                        		items.push({
+                                                                        			id: this.id,
+                                                                        			description: (this.name + " (" + (this.suitableformigration ? "Suitable": "Not Suitable") + ")")
+                                                                        		});
+                                                                        	}
                                                                         });
                                                                         args.response.success({
                                                                             data: items
@@ -8885,12 +8887,12 @@
                                                                                 var hostObjs = json.findhostsformigrationresponse.host;
                                                                                 var items =[];
                                                                                 $(hostObjs).each(function () {
-                                                                                    if (this.requiresStorageMotion == false) {
-                                                                                        items.push({
-                                                                                            id: this.id,
-                                                                                            description: (this.name + " (" + (this.suitableformigration ? "Suitable": "Not Suitable") + ")")
-                                                                                        });
-                                                                                    }
+                                                                                	if (this.requiresStorageMotion == false) {
+                                                                                		items.push({
+                                                                                			id: this.id,
+                                                                                			description: (this.name + " (" + (this.suitableformigration ? "Suitable": "Not Suitable") + ")")
+                                                                                		});
+                                                                                	}
                                                                                 });
                                                                                 args.response.success({
                                                                                     data: items
@@ -11647,12 +11649,10 @@
                                                         var hostObjs = json.findhostsformigrationresponse.host;
                                                         var items =[];
                                                         $(hostObjs).each(function () {
-                                                            if (this.requiresStorageMotion == false) {
-                                                                items.push({
-                                                                    id: this.id,
-                                                                    description: (this.name + " (" + (this.suitableformigration ? "Suitable": "Not Suitable") + ")")
-                                                                });
-                                                            }
+                                                            items.push({
+                                                                id: this.id,
+                                                                description: (this.name + " (" + (this.suitableformigration ? "Suitable": "Not Suitable") + ")")
+                                                            });
                                                         });
                                                         args.response.success({
                                                             data: items
