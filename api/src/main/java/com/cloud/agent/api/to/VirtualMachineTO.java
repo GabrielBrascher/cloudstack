@@ -28,6 +28,7 @@ public class VirtualMachineTO {
     private long id;
     private String name;
     private BootloaderType bootloader;
+    private VirtualMachine.State state;
     Type type;
     int cpus;
 
@@ -144,6 +145,14 @@ public class VirtualMachineTO {
 
     public void setBootloader(BootloaderType bootloader) {
         this.bootloader = bootloader;
+    }
+
+    public VirtualMachine.State getState() {
+        return state;
+    }
+
+    public void setState(VirtualMachine.State state) {
+        this.state = state;
     }
 
     public int getCpus() {
