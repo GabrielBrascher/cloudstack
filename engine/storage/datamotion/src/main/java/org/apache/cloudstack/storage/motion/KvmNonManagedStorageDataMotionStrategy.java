@@ -28,6 +28,7 @@ import org.apache.cloudstack.engine.subsystem.api.storage.DataStore;
 import org.apache.cloudstack.engine.subsystem.api.storage.StrategyPriority;
 import org.apache.cloudstack.engine.subsystem.api.storage.TemplateDataFactory;
 import org.apache.cloudstack.engine.subsystem.api.storage.TemplateInfo;
+import org.apache.cloudstack.engine.subsystem.api.storage.VolumeDataFactory;
 import org.apache.cloudstack.engine.subsystem.api.storage.VolumeInfo;
 import org.apache.cloudstack.storage.command.CopyCommand;
 import org.apache.cloudstack.storage.datastore.DataStoreManagerImpl;
@@ -72,6 +73,8 @@ public class KvmNonManagedStorageDataMotionStrategy extends StorageSystemDataMot
     private DataStoreManagerImpl dataStoreManagerImpl;
     @Inject
     private VirtualMachineManager virtualMachineManager;
+    @Inject
+    private VolumeDataFactory volumeDataFactory;
 
     private static final Logger LOGGER = Logger.getLogger(KvmNonManagedStorageDataMotionStrategy.class);
 
@@ -165,7 +168,7 @@ public class KvmNonManagedStorageDataMotionStrategy extends StorageSystemDataMot
      * If the template is not on the target primary storage then it migrates the template.
      */
     @Override
-    protected void migrateTemplateToTargetFilesystemStorageIfNeeded(VolumeInfo srcVolumeInfo, DataStore destDataStore, StoragePool destStoragePool,
+    protected void copyTemplateToTargetFilesystemStorageIfNeeded(VolumeInfo srcVolumeInfo, DataStore destDataStore, StoragePool destStoragePool,
             Host destHost) {
         VMTemplateStoragePoolVO sourceVolumeTemplateStoragePoolVO = vmTemplatePoolDao.findByPoolTemplate(destStoragePool.getId(), srcVolumeInfo.getTemplateId());
         if (sourceVolumeTemplateStoragePoolVO == null && destStoragePool.getPoolType() == StoragePoolType.Filesystem) {
@@ -178,7 +181,12 @@ public class KvmNonManagedStorageDataMotionStrategy extends StorageSystemDataMot
 
             TemplateInfo destTemplateInfo = templateDataFactory.getTemplate(srcVolumeInfo.getTemplateId(), destDataStore);
             final TemplateObjectTO destTemplate = new TemplateObjectTO(destTemplateInfo);
-            sendCopyCommand(destHost, sourceTemplate, destTemplate, destDataStore);
+            Answer copyCommandAnswer = sendCopyCommand(destHost, sourceTemplate, destTemplate, destDataStore);
+
+            if (copyCommandAnswer != null && copyCommandAnswer.getResult()) {
+                VolumeInfo destVolumeInfo = volumeDataFactory.getVolume(srcVolumeInfo.getId(), destDataStore);
+                updateCopiedTemplateReference(srcVolumeInfo, destVolumeInfo);
+            }
         }
     }
 
@@ -211,7 +219,7 @@ public class KvmNonManagedStorageDataMotionStrategy extends StorageSystemDataMot
             if (copyCommandAnswer.getDetails() != null) {
                 failureDetails = " Details: " + copyCommandAnswer.getDetails();
             }
-            LOGGER.debug(generateFailToCopyTemplateMessage(sourceTemplate, destDataStore) + failureDetails);
+            LOGGER.error(generateFailToCopyTemplateMessage(sourceTemplate, destDataStore) + failureDetails);
         }
     }
 }

@@ -52,6 +52,8 @@ import com.cloud.storage.Storage.ImageFormat;
 import com.cloud.storage.Storage.StoragePoolType;
 import com.cloud.storage.StorageManager;
 import com.cloud.storage.StoragePool;
+import com.cloud.storage.VMTemplateStoragePoolVO;
+import com.cloud.storage.VMTemplateStorageResourceAssoc;
 import com.cloud.storage.VMTemplateVO;
 import com.cloud.storage.VolumeDetailVO;
 import com.cloud.storage.Volume;
@@ -63,6 +65,7 @@ import com.cloud.storage.dao.SnapshotDao;
 import com.cloud.storage.dao.SnapshotDetailsDao;
 import com.cloud.storage.dao.SnapshotDetailsVO;
 import com.cloud.storage.dao.VMTemplateDao;
+import com.cloud.storage.dao.VMTemplatePoolDao;
 import com.cloud.storage.dao.VolumeDao;
 import com.cloud.storage.dao.VolumeDetailsDao;
 import com.cloud.utils.NumbersUtil;
@@ -109,6 +112,7 @@ import org.apache.cloudstack.storage.command.ResignatureCommand;
 import org.apache.cloudstack.storage.datastore.db.PrimaryDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.SnapshotDataStoreDao;
 import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
+import org.apache.cloudstack.engine.subsystem.api.storage.ObjectInDataStoreStateMachine;
 import org.apache.cloudstack.storage.to.PrimaryDataStoreTO;
 import org.apache.cloudstack.storage.to.VolumeObjectTO;
 import org.apache.commons.lang.StringUtils;
@@ -160,6 +164,8 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
     @Inject private VolumeService _volumeService;
     @Inject private StorageCacheManager cacheMgr;
     @Inject private EndPointSelector selector;
+    @Inject
+    private VMTemplatePoolDao vmTemplatePoolDao;
 
     @Override
     public StrategyPriority canHandle(DataObject srcData, DataObject destData) {
@@ -1724,7 +1730,7 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
                     continue;
                 }
 
-                migrateTemplateToTargetFilesystemStorageIfNeeded(srcVolumeInfo, destDataStore, destStoragePool, destHost);
+                copyTemplateToTargetFilesystemStorageIfNeeded(srcVolumeInfo, destDataStore, destStoragePool, destHost);
 
                 VolumeVO destVolume = duplicateVolumeOnAnotherStorage(srcVolume, destStoragePool);
                 VolumeInfo destVolumeInfo = _volumeDataFactory.getVolume(destVolume.getId(), destDataStore);
@@ -1862,10 +1868,26 @@ public class StorageSystemDataMotionStrategy implements DataMotionStrategy {
     }
 
     /**
-     * For this strategy it is not necessary to check and migrate the template; however, classes that extend this one may need to check if the template is on the target storage pool (and if not then migrate) before migrating the VM.
+     * For this strategy it is not necessary to check and migrate the template;
+     * however, classes that extend this one may need to copy the template to the target storage pool before migrating the VM.
      */
-    protected void migrateTemplateToTargetFilesystemStorageIfNeeded(VolumeInfo srcVolumeInfo, DataStore destDataStore, StoragePool destStoragePool, Host destHost) {
+    protected void copyTemplateToTargetFilesystemStorageIfNeeded(VolumeInfo srcVolumeInfo, DataStore destDataStore, StoragePool destStoragePool, Host destHost) {
         // This method is used by classes that extend this one
+    }
+
+    /**
+     * Update reference on template_spool_ref table of copied template to destination storage.
+     */
+    protected void updateCopiedTemplateReference(VolumeInfo srcVolumeInfo, VolumeInfo destVolumeInfo) {
+        VMTemplateStoragePoolVO sourceStoragePoolTemplateRef = vmTemplatePoolDao.findByPoolTemplate(srcVolumeInfo.getPoolId(), srcVolumeInfo.getTemplateId());
+        VMTemplateStoragePoolVO destStoragePoolTemplateRef = new VMTemplateStoragePoolVO(destVolumeInfo.getPoolId(), sourceStoragePoolTemplateRef.getTemplateId());
+        destStoragePoolTemplateRef.setDownloadPercent(100);
+        destStoragePoolTemplateRef.setDownloadState(VMTemplateStorageResourceAssoc.Status.DOWNLOADED);
+        destStoragePoolTemplateRef.setState(ObjectInDataStoreStateMachine.State.Ready);
+        destStoragePoolTemplateRef.setTemplateSize(sourceStoragePoolTemplateRef.getTemplateSize());
+        destStoragePoolTemplateRef.setLocalDownloadPath(sourceStoragePoolTemplateRef.getLocalDownloadPath());
+        destStoragePoolTemplateRef.setInstallPath(sourceStoragePoolTemplateRef.getInstallPath());
+        vmTemplatePoolDao.persist(destStoragePoolTemplateRef);
     }
 
     private void handlePostMigration(boolean success, Map<VolumeInfo, VolumeInfo> srcVolumeInfoToDestVolumeInfo, VirtualMachineTO vmTO, Host destHost) {

@@ -25,6 +25,7 @@ import org.apache.cloudstack.engine.subsystem.api.storage.DataStore;
 import org.apache.cloudstack.engine.subsystem.api.storage.StrategyPriority;
 import org.apache.cloudstack.engine.subsystem.api.storage.TemplateDataFactory;
 import org.apache.cloudstack.engine.subsystem.api.storage.TemplateInfo;
+import org.apache.cloudstack.engine.subsystem.api.storage.VolumeDataFactory;
 import org.apache.cloudstack.engine.subsystem.api.storage.VolumeInfo;
 import org.apache.cloudstack.storage.command.CopyCommand;
 import org.apache.cloudstack.storage.datastore.DataStoreManagerImpl;
@@ -91,6 +92,8 @@ public class KvmNonManagedStorageSystemDataMotionTest {
     private VMTemplatePoolDao vmTemplatePoolDao;
     @Mock
     private DataStoreManagerImpl dataStoreManagerImpl;
+    @Mock
+    private VolumeDataFactory volumeDataFactory;
 
     @Spy
     @InjectMocks
@@ -323,13 +326,25 @@ public class KvmNonManagedStorageSystemDataMotionTest {
     }
 
     @Test
-    public void migrateTemplateToTargetStorageIfNeededTestTemplateAlreadyOnTargetHost() throws AgentUnavailableException, OperationTimedoutException {
-        configureAndTestmigrateTemplateToTargetStorageIfNeeded(new VMTemplateStoragePoolVO(0l, 0l), StoragePoolType.Filesystem, 0);
+    public void copyTemplateToTargetStorageIfNeededTestTemplateAlreadyOnTargetHost() throws AgentUnavailableException, OperationTimedoutException {
+        Answer copyCommandAnswer = Mockito.mock(Answer.class);
+        Mockito.when(copyCommandAnswer.getResult()).thenReturn(true);
+        configureAndTestcopyTemplateToTargetStorageIfNeeded(new VMTemplateStoragePoolVO(0l, 0l), StoragePoolType.Filesystem, 0, copyCommandAnswer, 0);
+
+        Mockito.when(copyCommandAnswer.getResult()).thenReturn(false);
+        configureAndTestcopyTemplateToTargetStorageIfNeeded(new VMTemplateStoragePoolVO(0l, 0l), StoragePoolType.Filesystem, 0, copyCommandAnswer, 0);
     }
 
     @Test
     public void migrateTemplateToTargetStorageIfNeededTestTemplateNotOnTargetHost() throws AgentUnavailableException, OperationTimedoutException {
-        configureAndTestmigrateTemplateToTargetStorageIfNeeded(null, StoragePoolType.Filesystem, 1);
+        configureAndTestcopyTemplateToTargetStorageIfNeeded(null, StoragePoolType.Filesystem, 1, null, 0);
+
+        Answer copyCommandAnswer = Mockito.mock(Answer.class);
+        Mockito.when(copyCommandAnswer.getResult()).thenReturn(true);
+        configureAndTestcopyTemplateToTargetStorageIfNeeded(null, StoragePoolType.Filesystem, 1, copyCommandAnswer, 1);
+
+        Mockito.when(copyCommandAnswer.getResult()).thenReturn(false);
+        configureAndTestcopyTemplateToTargetStorageIfNeeded(null, StoragePoolType.Filesystem, 1, copyCommandAnswer, 0);
     }
 
     @Test
@@ -339,16 +354,27 @@ public class KvmNonManagedStorageSystemDataMotionTest {
             if (storagePoolTypeArray[i] == StoragePoolType.Filesystem) {
                 continue;
             }
-            configureAndTestmigrateTemplateToTargetStorageIfNeeded(new VMTemplateStoragePoolVO(0l, 0l), storagePoolTypeArray[i], 0);
+            configureAndTestcopyTemplateToTargetStorageIfNeeded(new VMTemplateStoragePoolVO(0l, 0l), storagePoolTypeArray[i], 0, null, 0);
+
+            Answer copyCommandAnswer = Mockito.mock(Answer.class);
+            Mockito.when(copyCommandAnswer.getResult()).thenReturn(true);
+            configureAndTestcopyTemplateToTargetStorageIfNeeded(new VMTemplateStoragePoolVO(0l, 0l), storagePoolTypeArray[i], 0, copyCommandAnswer, 0);
+
+            Mockito.when(copyCommandAnswer.getResult()).thenReturn(false);
+            configureAndTestcopyTemplateToTargetStorageIfNeeded(new VMTemplateStoragePoolVO(0l, 0l), storagePoolTypeArray[i], 0, copyCommandAnswer, 0);
         }
     }
 
-    private void configureAndTestmigrateTemplateToTargetStorageIfNeeded(VMTemplateStoragePoolVO vmTemplateStoragePoolVO, StoragePoolType storagePoolType, int times) {
+    private void configureAndTestcopyTemplateToTargetStorageIfNeeded(VMTemplateStoragePoolVO vmTemplateStoragePoolVO, StoragePoolType storagePoolType, int times,
+            Answer copyCommandAnswer, int timesUpdate) {
         DataStore destDataStore = Mockito.mock(DataStore.class);
         Host destHost = Mockito.mock(Host.class);
 
         VolumeInfo srcVolumeInfo = Mockito.mock(VolumeInfo.class);
         Mockito.when(srcVolumeInfo.getTemplateId()).thenReturn(0l);
+
+        VolumeInfo destVolumeInfo = Mockito.mock(VolumeInfo.class);
+        Mockito.when(volumeDataFactory.getVolume(Mockito.anyLong(), Mockito.any(DataStore.class))).thenReturn(destVolumeInfo);
 
         StoragePool destStoragePool = Mockito.mock(StoragePool.class);
         Mockito.when(destStoragePool.getId()).thenReturn(0l);
@@ -375,8 +401,10 @@ public class KvmNonManagedStorageSystemDataMotionTest {
         Mockito.when(dataStoreManagerImpl.getImageStore(Mockito.anyLong())).thenReturn(sourceTemplateDataStore);
         Mockito.when(templateDataFactory.getTemplate(Mockito.anyLong(), Mockito.eq(sourceTemplateDataStore))).thenReturn(sourceTemplateInfo);
         Mockito.when(templateDataFactory.getTemplate(Mockito.anyLong(), Mockito.eq(destDataStore))).thenReturn(sourceTemplateInfo);
-
-        kvmNonManagedStorageDataMotionStrategy.migrateTemplateToTargetFilesystemStorageIfNeeded(srcVolumeInfo, destDataStore, destStoragePool, destHost);
+        Mockito.doReturn(copyCommandAnswer).when(kvmNonManagedStorageDataMotionStrategy).sendCopyCommand(Mockito.eq(destHost), Mockito.any(TemplateObjectTO.class),
+                Mockito.any(TemplateObjectTO.class), Mockito.eq(destDataStore));
+        kvmNonManagedStorageDataMotionStrategy.copyTemplateToTargetFilesystemStorageIfNeeded(srcVolumeInfo, destDataStore, destStoragePool, destHost);
+        Mockito.doNothing().when(kvmNonManagedStorageDataMotionStrategy).updateCopiedTemplateReference(Mockito.any(VolumeInfo.class), Mockito.any(VolumeInfo.class));
 
         InOrder verifyInOrder = Mockito.inOrder(vmTemplatePoolDao, dataStoreManagerImpl, templateDataFactory, kvmNonManagedStorageDataMotionStrategy);
         verifyInOrder.verify(vmTemplatePoolDao, Mockito.times(1)).findByPoolTemplate(Mockito.anyLong(), Mockito.anyLong());
@@ -385,5 +413,7 @@ public class KvmNonManagedStorageSystemDataMotionTest {
         verifyInOrder.verify(templateDataFactory, Mockito.times(times)).getTemplate(Mockito.anyLong(), Mockito.eq(destDataStore));
         verifyInOrder.verify(kvmNonManagedStorageDataMotionStrategy, Mockito.times(times)).sendCopyCommand(Mockito.eq(destHost), Mockito.any(TemplateObjectTO.class),
                 Mockito.any(TemplateObjectTO.class), Mockito.eq(destDataStore));
+        verifyInOrder.verify(kvmNonManagedStorageDataMotionStrategy, Mockito.times(timesUpdate)).updateCopiedTemplateReference(Mockito.any(VolumeInfo.class),
+                Mockito.any(VolumeInfo.class));
     }
 }
