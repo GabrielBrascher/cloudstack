@@ -30,6 +30,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Random;
 import java.util.TimeZone;
 import java.util.UUID;
 import java.util.concurrent.Executors;
@@ -39,8 +40,8 @@ import java.util.concurrent.TimeUnit;
 import javax.inject.Inject;
 import javax.naming.ConfigurationException;
 
-import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.affinity.dao.AffinityGroupVMMapDao;
+import org.apache.cloudstack.api.ApiConstants;
 import org.apache.cloudstack.api.command.admin.vm.MigrateVMCmd;
 import org.apache.cloudstack.api.command.admin.volume.MigrateVolumeCmdByAdmin;
 import org.apache.cloudstack.api.command.user.volume.MigrateVolumeCmd;
@@ -2959,6 +2960,49 @@ public class VirtualMachineManagerImpl extends ManagerBase implements VirtualMac
                 if (s_logger.isDebugEnabled()) {
                     s_logger.debug("Found destination " + dest + " for migrating to.");
                 }
+            } else if (offeringVO.isUseLocalStorage() && vm.getHypervisorType() == HypervisorType.KVM) {
+                List<HostVO> hosts = _hostDao.findByClusterId(host.getClusterId());
+                s_logger.debug("Hosts: " + hosts);
+                s_logger.debug("Remove host: " + vm.getHostId());
+                hosts.remove(_hostDao.findById(vm.getHostId()));
+                s_logger.debug("Hosts: " + hosts);
+
+                Random rand = new Random();
+
+                HostVO randomHostInCluster = hosts.get(rand.nextInt(hosts.size()));
+                while (randomHostInCluster.getId() == vm.getHostId()) {
+                    randomHostInCluster = hosts.get(rand.nextInt(hosts.size()));
+                }
+                s_logger.debug("Random Host in Cluster: " + randomHostInCluster);
+
+                DiskOfferingVO vmDiskOffering = _diskOfferingDao.findById(vm.getDiskOfferingId());
+                
+                List<StoragePoolVO> localStoragePools = null;
+                if (vmDiskOffering.getTagsArray() != null) {
+                    localStoragePools = _storagePoolDao.findLocalStoragePoolsByHostAndTags(randomHostInCluster.getId(), vmDiskOffering.getTagsArray());
+                } else {
+                    localStoragePools = _storagePoolDao.findLocalStoragePoolsByHostAndTags(randomHostInCluster.getId(), null);
+                }
+
+                s_logger.debug(String.format("Found storage pools [%s] matching VM disk offering tags [%s]", localStoragePools, vmDiskOffering));
+
+                StoragePoolVO localStoragePool = localStoragePools.get(0);
+                s_logger.debug(String.format("Selecting storage pool [%s] to migrate VM volume", localStoragePool));
+
+                s_logger.debug(
+                        String.format("Data Center id [%d], Pod id [%d], Cluster id [%d], Host id [%d]", host.getDataCenterId(), host.getPodId(), host.getClusterId(),
+                                randomHostInCluster.getId()));
+
+                Map<Volume, StoragePool> storage = new HashMap<>();
+                List<VolumeVO> vmVols = _volsDao.findByInstance(vm.getId());
+                for (VolumeVO vmVolume : vmVols) {
+                    storage.put(vmVolume, localStoragePool);
+                }
+
+                dest = new DeployDestination(_dcDao.findById(host.getDataCenterId()), _podDao.findById(host.getPodId()), _clusterDao.findById(host.getClusterId()),
+                        randomHostInCluster, storage);
+
+                s_logger.debug("Found destination " + dest + " for migrating to.");
             } else {
                 if (s_logger.isDebugEnabled()) {
                     s_logger.debug("Unable to find destination for migrating the vm " + profile);
