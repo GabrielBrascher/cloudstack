@@ -37,6 +37,7 @@ import com.cloud.storage.DataStoreRole;
 import com.cloud.storage.Snapshot;
 import com.cloud.storage.SnapshotVO;
 import com.cloud.storage.Storage.ImageFormat;
+import com.cloud.storage.Storage.StoragePoolType;
 import com.cloud.storage.Volume;
 import com.cloud.storage.VolumeVO;
 import com.cloud.storage.dao.SnapshotDao;
@@ -242,13 +243,14 @@ public class StorageSystemSnapshotStrategy extends SnapshotStrategyBase {
     }
 
     private boolean isAcceptableRevertFormat(VolumeVO volumeVO) {
-        return ImageFormat.VHD.equals(volumeVO.getFormat()) || ImageFormat.OVA.equals(volumeVO.getFormat()) || ImageFormat.QCOW2.equals(volumeVO.getFormat());
+        return ImageFormat.VHD.equals(volumeVO.getFormat()) || ImageFormat.OVA.equals(volumeVO.getFormat()) || ImageFormat.QCOW2.equals(volumeVO.getFormat())
+                || ImageFormat.RAW.equals(volumeVO.getFormat());
     }
 
     private void verifyFormat(VolumeInfo volumeInfo) {
         ImageFormat imageFormat = volumeInfo.getFormat();
 
-        if (imageFormat != ImageFormat.VHD && imageFormat != ImageFormat.OVA && imageFormat != ImageFormat.QCOW2) {
+        if (imageFormat != ImageFormat.VHD && imageFormat != ImageFormat.OVA && imageFormat != ImageFormat.QCOW2 && imageFormat != ImageFormat.RAW) {
             throw new CloudRuntimeException("Only the following image types are currently supported: " +
                     ImageFormat.VHD.toString() + ", " + ImageFormat.OVA.toString() + ", and " + ImageFormat.QCOW2);
         }
@@ -950,10 +952,15 @@ public class StorageSystemSnapshotStrategy extends SnapshotStrategyBase {
 
                     boolean usingBackendSnapshot = usingBackendSnapshotFor(snapshot.getId());
 
+                    long snapshotStoragePoolId = snapshotStore.getDataStoreId();
+                    StoragePoolVO storagePoolVO = storagePoolDao.findById(snapshotStoragePoolId);
+
+                    if (storagePoolVO.getPoolType() == StoragePoolType.RBD) {
+                        return StrategyPriority.HIGHEST;
+                    }
+
                     if (usingBackendSnapshot) {
                         if (snapshotStore != null) {
-                            long snapshotStoragePoolId = snapshotStore.getDataStoreId();
-
                             boolean storageSystemSupportsCapability = storageSystemSupportsCapability(snapshotStoragePoolId,
                                     DataStoreCapabilities.CAN_REVERT_VOLUME_TO_SNAPSHOT.toString());
 
@@ -971,16 +978,12 @@ public class StorageSystemSnapshotStrategy extends SnapshotStrategyBase {
                     }
                     else {
                         if (snapshotStore != null) {
-                            long snapshotStoragePoolId = snapshotStore.getDataStoreId();
-
-                            StoragePoolVO storagePoolVO = storagePoolDao.findById(snapshotStoragePoolId);
-
                             if (storagePoolVO.isManaged()) {
                                 return StrategyPriority.HIGHEST;
                             }
                         }
 
-                        StoragePoolVO storagePoolVO = storagePoolDao.findById(volumeStoragePoolId);
+                        storagePoolVO = storagePoolDao.findById(volumeStoragePoolId);
 
                         if (storagePoolVO.isManaged()) {
                             return StrategyPriority.HIGHEST;
