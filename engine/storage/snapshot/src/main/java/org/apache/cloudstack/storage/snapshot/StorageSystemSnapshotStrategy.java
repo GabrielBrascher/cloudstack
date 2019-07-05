@@ -328,9 +328,14 @@ public class StorageSystemSnapshotStrategy extends SnapshotStrategyBase {
             throw new CloudRuntimeException(errMsg);
         }
 
+        executeRevertSnapshot(snapshotInfo, volumeInfo);
+
+        return true;
+    }
+
+    protected void executeRevertSnapshot(SnapshotInfo snapshotInfo, VolumeInfo volumeInfo) {
         Long hostId = null;
         boolean success = false;
-
         try {
             volumeInfo.stateTransit(Volume.Event.RevertSnapshotRequested);
 
@@ -354,7 +359,7 @@ public class StorageSystemSnapshotStrategy extends SnapshotStrategyBase {
 
                 s_logger.error(errMsg);
 
-                throw new CloudRuntimeException(errMsg);
+                throw new CloudRuntimeException("Failed to revert a volume to a snapshot state");
             }
         }
         finally {
@@ -378,8 +383,6 @@ public class StorageSystemSnapshotStrategy extends SnapshotStrategyBase {
 
             snapshotDao.releaseFromLockTable(snapshotInfo.getId());
         }
-
-        return true;
     }
 
     private Long getHostId(VolumeInfo volumeInfo) {

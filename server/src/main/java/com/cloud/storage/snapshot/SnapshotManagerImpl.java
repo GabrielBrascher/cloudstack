@@ -1279,7 +1279,7 @@ public class SnapshotManagerImpl extends MutualExclusiveIdsManagerBase implement
             String value = mapCapabilities.get(DataStoreCapabilities.STORAGE_SYSTEM_SNAPSHOT.toString());
             Boolean supportsStorageSystemSnapshots = new Boolean(value);
 
-            if (supportsStorageSystemSnapshots) {
+            if (supportsStorageSystemSnapshots || !BackupSnapshotAfterTakingSnapshot.value()) {
                 return DataStoreRole.Primary;
             }
         }
