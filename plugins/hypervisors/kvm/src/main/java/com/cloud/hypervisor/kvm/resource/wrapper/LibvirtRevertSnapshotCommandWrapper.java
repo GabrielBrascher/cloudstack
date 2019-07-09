@@ -27,6 +27,12 @@ import org.apache.cloudstack.storage.to.SnapshotObjectTO;
 import org.apache.cloudstack.storage.to.VolumeObjectTO;
 import org.apache.log4j.Logger;
 
+import com.ceph.rados.IoCTX;
+import com.ceph.rados.Rados;
+import com.ceph.rados.exceptions.RadosException;
+import com.ceph.rbd.Rbd;
+import com.ceph.rbd.RbdException;
+import com.ceph.rbd.RbdImage;
 import com.cloud.agent.api.Answer;
 import com.cloud.agent.api.to.DataStoreTO;
 import com.cloud.agent.api.to.NfsTO;
@@ -51,8 +57,11 @@ public final class LibvirtRevertSnapshotCommandWrapper extends CommandWrapper<Re
         VolumeObjectTO volume = snapshot.getVolume();
         PrimaryDataStoreTO primaryStore = (PrimaryDataStoreTO) volume.getDataStore();
         DataStoreTO snapshotImageStore = snapshot.getDataStore();
-        if (!(snapshotImageStore instanceof NfsTO)) {
-            return new Answer(command, false, "revert snapshot on object storage is not implemented yet");
+
+        if (!(snapshotImageStore instanceof NfsTO) && primaryStore.getPoolType() != StoragePoolType.RBD) {
+            return new Answer(command, false,
+                    String.format("Revert snapshot does not support storage pool of type [%s]. Revert snapshot is supported by storage pools of type 'NFS' or 'RBD'",
+                            primaryStore.getPoolType()));
         }
         NfsTO nfsImageStore = (NfsTO) snapshotImageStore;
 
@@ -74,7 +83,21 @@ public final class LibvirtRevertSnapshotCommandWrapper extends CommandWrapper<Re
             KVMStoragePool primaryPool = snapshotDisk.getPool();
 
             if (primaryPool.getType() == StoragePoolType.RBD) {
-                return new Answer(command, false, "revert snapshot to RBD is not implemented yet");
+                Rados rados = new Rados(primaryPool.getAuthUserName());
+                rados.confSet("mon_host", primaryPool.getSourceHost() + ":" + primaryPool.getSourcePort());
+                rados.confSet("key", primaryPool.getAuthSecret());
+                rados.confSet("client_mount_timeout", "30");
+                rados.connect();
+
+                IoCTX io = rados.ioCtxCreate(primaryPool.getSourceDir());
+                Rbd rbd = new Rbd(io);
+                RbdImage image = rbd.open(snapshotRelPath);
+
+                s_logger.debug(String.format("Attempting to rollback RBD snapshot [name:%s, id:%s, path:%s]", snapshot.getName(), snapshot.getId(), snapshotRelPath));
+                image.snapRollBack(snapshot.getName());
+
+                rbd.close(image);
+                rados.ioCtxDestroy(io);
             } else {
                 Script cmd = new Script(libvirtComputingResource.manageSnapshotPath(), libvirtComputingResource.getCmdsTimeout(), s_logger);
                 cmd.add("-v", snapshotPath);
@@ -89,6 +112,12 @@ public final class LibvirtRevertSnapshotCommandWrapper extends CommandWrapper<Re
 
             return new Answer(command, true, "RevertSnapshotCommand executes successfully");
         } catch (CloudRuntimeException e) {
+            return new Answer(command, false, e.toString());
+        } catch (RadosException e) {
+            s_logger.error("Failed to connect to Rados pool while trying to revert snapshot. Exception: ", e);
+            return new Answer(command, false, e.toString());
+        } catch (RbdException e) {
+            s_logger.error("Failed to connect to revert snapshot due to RBD exception: ", e);
             return new Answer(command, false, e.toString());
         }
     }

@@ -16,46 +16,16 @@
 // under the License.
 package org.apache.cloudstack.storage.snapshot;
 
-import com.cloud.agent.AgentManager;
-import com.cloud.agent.api.Answer;
-import com.cloud.agent.api.ModifyTargetsCommand;
-import com.cloud.agent.api.to.DiskTO;
-import com.cloud.dc.dao.ClusterDao;
-import com.cloud.event.ActionEvent;
-import com.cloud.event.EventTypes;
-import com.cloud.event.UsageEventUtils;
-import com.cloud.exception.InvalidParameterValueException;
-import com.cloud.host.HostVO;
-import com.cloud.host.dao.HostDao;
-import com.cloud.hypervisor.Hypervisor.HypervisorType;
-import com.cloud.org.Cluster;
-import com.cloud.org.Grouping.AllocationState;
-import com.cloud.resource.ResourceState;
-import com.cloud.server.ManagementService;
-import com.cloud.storage.CreateSnapshotPayload;
-import com.cloud.storage.DataStoreRole;
-import com.cloud.storage.Snapshot;
-import com.cloud.storage.SnapshotVO;
-import com.cloud.storage.Storage.ImageFormat;
-import com.cloud.storage.Volume;
-import com.cloud.storage.VolumeVO;
-import com.cloud.storage.dao.SnapshotDao;
-import com.cloud.storage.dao.SnapshotDetailsDao;
-import com.cloud.storage.dao.SnapshotDetailsVO;
-import com.cloud.storage.dao.VolumeDao;
-import com.cloud.storage.dao.VolumeDetailsDao;
-import com.cloud.storage.VolumeDetailVO;
-import com.cloud.utils.db.DB;
-import com.cloud.utils.exception.CloudRuntimeException;
-import com.cloud.utils.fsm.NoTransitionException;
-import com.cloud.vm.VirtualMachine;
-import com.cloud.vm.VMInstanceVO;
-import com.cloud.vm.dao.VMInstanceDao;
-import com.cloud.vm.snapshot.VMSnapshot;
-import com.cloud.vm.snapshot.VMSnapshotService;
-import com.cloud.vm.snapshot.VMSnapshotVO;
-import com.cloud.vm.snapshot.dao.VMSnapshotDao;
-import com.google.common.base.Preconditions;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Random;
+import java.util.UUID;
+
+import javax.inject.Inject;
 
 import org.apache.cloudstack.engine.subsystem.api.storage.ChapInfo;
 import org.apache.cloudstack.engine.subsystem.api.storage.DataStore;
@@ -77,16 +47,47 @@ import org.apache.cloudstack.storage.datastore.db.StoragePoolVO;
 import org.apache.log4j.Logger;
 import org.springframework.stereotype.Component;
 
-import javax.inject.Inject;
-
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Random;
-import java.util.UUID;
+import com.cloud.agent.AgentManager;
+import com.cloud.agent.api.Answer;
+import com.cloud.agent.api.ModifyTargetsCommand;
+import com.cloud.agent.api.to.DiskTO;
+import com.cloud.dc.dao.ClusterDao;
+import com.cloud.event.ActionEvent;
+import com.cloud.event.EventTypes;
+import com.cloud.event.UsageEventUtils;
+import com.cloud.exception.InvalidParameterValueException;
+import com.cloud.host.HostVO;
+import com.cloud.host.dao.HostDao;
+import com.cloud.hypervisor.Hypervisor.HypervisorType;
+import com.cloud.org.Cluster;
+import com.cloud.org.Grouping.AllocationState;
+import com.cloud.resource.ResourceState;
+import com.cloud.server.ManagementService;
+import com.cloud.storage.CreateSnapshotPayload;
+import com.cloud.storage.DataStoreRole;
+import com.cloud.storage.Snapshot;
+import com.cloud.storage.SnapshotVO;
+import com.cloud.storage.Storage.ImageFormat;
+import com.cloud.storage.Storage.StoragePoolType;
+import com.cloud.storage.Volume;
+import com.cloud.storage.VolumeDetailVO;
+import com.cloud.storage.VolumeVO;
+import com.cloud.storage.dao.SnapshotDao;
+import com.cloud.storage.dao.SnapshotDetailsDao;
+import com.cloud.storage.dao.SnapshotDetailsVO;
+import com.cloud.storage.dao.VolumeDao;
+import com.cloud.storage.dao.VolumeDetailsDao;
+import com.cloud.utils.db.DB;
+import com.cloud.utils.exception.CloudRuntimeException;
+import com.cloud.utils.fsm.NoTransitionException;
+import com.cloud.vm.VMInstanceVO;
+import com.cloud.vm.VirtualMachine;
+import com.cloud.vm.dao.VMInstanceDao;
+import com.cloud.vm.snapshot.VMSnapshot;
+import com.cloud.vm.snapshot.VMSnapshotService;
+import com.cloud.vm.snapshot.VMSnapshotVO;
+import com.cloud.vm.snapshot.dao.VMSnapshotDao;
+import com.google.common.base.Preconditions;
 
 @Component
 public class StorageSystemSnapshotStrategy extends SnapshotStrategyBase {
@@ -248,7 +249,7 @@ public class StorageSystemSnapshotStrategy extends SnapshotStrategyBase {
     private void verifyFormat(VolumeInfo volumeInfo) {
         ImageFormat imageFormat = volumeInfo.getFormat();
 
-        if (imageFormat != ImageFormat.VHD && imageFormat != ImageFormat.OVA && imageFormat != ImageFormat.QCOW2) {
+        if (imageFormat != ImageFormat.VHD && imageFormat != ImageFormat.OVA && imageFormat != ImageFormat.QCOW2 && imageFormat != ImageFormat.RAW) {
             throw new CloudRuntimeException("Only the following image types are currently supported: " +
                     ImageFormat.VHD.toString() + ", " + ImageFormat.OVA.toString() + ", and " + ImageFormat.QCOW2);
         }
@@ -295,9 +296,8 @@ public class StorageSystemSnapshotStrategy extends SnapshotStrategyBase {
 
         SnapshotDataStoreVO snapshotStore = snapshotStoreDao.findBySnapshot(snapshotInfo.getId(), DataStoreRole.Primary);
 
+        long snapshotStoragePoolId = snapshotStore.getDataStoreId();
         if (snapshotStore != null) {
-            long snapshotStoragePoolId = snapshotStore.getDataStoreId();
-
             if (!volumeInfo.getPoolId().equals(snapshotStoragePoolId)) {
                 String errMsg = "Storage pool mismatch";
 
@@ -309,6 +309,11 @@ public class StorageSystemSnapshotStrategy extends SnapshotStrategyBase {
 
         boolean storageSystemSupportsCapability = storageSystemSupportsCapability(volumeInfo.getPoolId(),
                 DataStoreCapabilities.CAN_REVERT_VOLUME_TO_SNAPSHOT.toString());
+
+        StoragePoolVO storagePoolVO = storagePoolDao.findById(snapshotStoragePoolId);
+        if (storagePoolVO.getPoolType() == StoragePoolType.RBD) {
+            storageSystemSupportsCapability = true;
+        }
 
         if (!storageSystemSupportsCapability) {
             String errMsg = "Storage pool revert capability not supported";
@@ -943,6 +948,10 @@ public class StorageSystemSnapshotStrategy extends SnapshotStrategyBase {
             boolean baseVolumeExists = volumeVO.getRemoved() == null;
 
             if (baseVolumeExists) {
+                if (isSnapshotStoredOnRbdStoragePool(snapshot) && ImageFormat.RAW.equals(volumeVO.getFormat())) {
+                    return StrategyPriority.HIGHEST;
+                }
+
                 boolean acceptableFormat = isAcceptableRevertFormat(volumeVO);
 
                 if (acceptableFormat) {
@@ -995,6 +1004,13 @@ public class StorageSystemSnapshotStrategy extends SnapshotStrategyBase {
         boolean storageSystemSupportsCapability = storageSystemSupportsCapability(volumeStoragePoolId, DataStoreCapabilities.STORAGE_SYSTEM_SNAPSHOT.toString());
 
         return storageSystemSupportsCapability ? StrategyPriority.HIGHEST : StrategyPriority.CANT_HANDLE;
+    }
+
+    private boolean isSnapshotStoredOnRbdStoragePool(Snapshot snapshot) {
+        SnapshotDataStoreVO snapshotStore = snapshotStoreDao.findBySnapshot(snapshot.getId(), DataStoreRole.Primary);
+        long snapshotStoragePoolId = snapshotStore.getDataStoreId();
+        StoragePoolVO storagePoolVO = storagePoolDao.findById(snapshotStoragePoolId);
+        return storagePoolVO.getPoolType() == StoragePoolType.RBD;
     }
 
 }
