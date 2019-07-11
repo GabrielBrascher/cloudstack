@@ -80,6 +80,7 @@ public final class LibvirtRevertSnapshotCommandWrapper extends CommandWrapper<Re
 
             if (primaryPool.getType() == StoragePoolType.RBD) {
                 Rados rados = new Rados(primaryPool.getAuthUserName());
+<<<<<<< HEAD
                 rados.confSet(MON_HOST, primaryPool.getSourceHost() + ":" + primaryPool.getSourcePort());
                 rados.confSet(KEY, primaryPool.getAuthSecret());
                 rados.confSet(CLIENT_MOUNT_TIMEOUT, RADOS_CONNECTION_TIMEOUT);
@@ -94,6 +95,19 @@ public final class LibvirtRevertSnapshotCommandWrapper extends CommandWrapper<Re
                 s_logger.debug(String.format("Attempting to rollback RBD snapshot [name:%s], [pool:%s], [volumeid:%s], [snapshotid:%s]", snapshot.getName(),
                         rbdPoolAndVolumeAndSnapshot[0], rbdPoolAndVolumeAndSnapshot[1], rbdPoolAndVolumeAndSnapshot[2]));
                 image.snapRollBack(rbdPoolAndVolumeAndSnapshot[2]);
+=======
+                rados.confSet("mon_host", primaryPool.getSourceHost() + ":" + primaryPool.getSourcePort());
+                rados.confSet("key", primaryPool.getAuthSecret());
+                rados.confSet("client_mount_timeout", "30");
+                rados.connect();
+
+                IoCTX io = rados.ioCtxCreate(primaryPool.getSourceDir());
+                Rbd rbd = new Rbd(io);
+                RbdImage image = rbd.open(snapshotRelPath);
+
+                s_logger.debug(String.format("Attempting to rollback RBD snapshot [name:%s, id:%s, path:%s]", snapshot.getName(), snapshot.getId(), snapshotRelPath));
+                image.snapRollBack(snapshot.getName());
+>>>>>>> 204d55c... Add CephSnapshotStrategy to handle RBD revert (rollback) snapshot
 
                 rbd.close(image);
                 rados.ioCtxDestroy(io);

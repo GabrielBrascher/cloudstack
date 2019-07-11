@@ -339,6 +339,20 @@ public class StorageSystemSnapshotStrategy extends SnapshotStrategyBase {
             throw new CloudRuntimeException(errMsg);
         }
 
+<<<<<<< HEAD
+=======
+        executeRevertSnapshot(snapshotInfo, volumeInfo);
+
+        return true;
+    }
+
+    /**
+     * TODO
+     */
+    protected void executeRevertSnapshot(SnapshotInfo snapshotInfo, VolumeInfo volumeInfo) {
+        Long hostId = null;
+        boolean success = false;
+>>>>>>> 204d55c... Add CephSnapshotStrategy to handle RBD revert (rollback) snapshot
         try {
             volumeInfo.stateTransit(Volume.Event.RevertSnapshotRequested);
 

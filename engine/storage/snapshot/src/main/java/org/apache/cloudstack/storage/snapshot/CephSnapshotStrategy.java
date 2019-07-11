@@ -68,17 +68,30 @@ public class CephSnapshotStrategy extends StorageSystemSnapshotStrategy {
     public boolean revertSnapshot(SnapshotInfo snapshotInfo) {
         VolumeInfo volumeInfo = snapshotInfo.getBaseVolume();
         ImageFormat imageFormat = volumeInfo.getFormat();
+<<<<<<< HEAD
         if (!ImageFormat.RAW.equals(imageFormat)) {
             s_logger.error(String.format("Does not support revert snapshot of the image format [%s] on Ceph/RBD. Can only rollback snapshots of format RAW", imageFormat));
             return false;
+=======
+//        TODO does this check makes sense?
+        if (!ImageFormat.RAW.equals(imageFormat)) {
+            s_logger.error(String.format("Does not support revert snapshot of the image format [%s] on Ceph/RBD. Can only rollback snapshots of format RAW", imageFormat));
+>>>>>>> 204d55c... Add CephSnapshotStrategy to handle RBD revert (rollback) snapshot
         }
 
         executeRevertSnapshot(snapshotInfo, volumeInfo);
 
+<<<<<<< HEAD
         return true;
     }
 
     protected boolean isSnapshotStoredOnRbdStoragePool(Snapshot snapshot) {
+=======
+        return false;
+    }
+
+    private boolean isSnapshotStoredOnRbdStoragePool(Snapshot snapshot) {
+>>>>>>> 204d55c... Add CephSnapshotStrategy to handle RBD revert (rollback) snapshot
         SnapshotDataStoreVO snapshotStore = snapshotStoreDao.findBySnapshot(snapshot.getId(), DataStoreRole.Primary);
         long snapshotStoragePoolId = snapshotStore.getDataStoreId();
         StoragePoolVO storagePoolVO = primaryDataStoreDao.findById(snapshotStoragePoolId);
