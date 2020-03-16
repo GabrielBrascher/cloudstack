@@ -127,7 +127,7 @@ public class KVMStorageProcessor implements StorageProcessor {
     private String _createTmplPath;
     private String _manageSnapshotPath;
     private int _cmdsTimeout;
-    
+
     private static final String MANAGE_SNAPSTHOT_CREATE = "-c";
     private static final String MANAGE_SNAPSTHOT_DESTROY = "-d";
     private static final String NAME = "-n";
@@ -1551,7 +1551,7 @@ public class KVMStorageProcessor implements StorageProcessor {
         s_logger.debug("Succesfully connected to Ceph cluster at " + r.confGet(CEPH_MON_HOST));
         return r;
     }
-    
+
     @Override
     public Answer deleteVolume(final DeleteCommand cmd) {
         final VolumeObjectTO vol = (VolumeObjectTO)cmd.getData();
